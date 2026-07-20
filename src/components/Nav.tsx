@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
@@ -13,6 +13,15 @@ const LINKS = [
 
 export function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
+  if (pathname === "/login") return null;
 
   return (
     <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
@@ -21,7 +30,7 @@ export function Nav() {
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
           sybaubetting
         </Link>
-        <nav className="flex items-center gap-1">
+        <nav className="flex flex-1 items-center gap-1">
           {LINKS.map((link) => {
             const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
             return (
@@ -39,6 +48,12 @@ export function Nav() {
             );
           })}
         </nav>
+        <button
+          onClick={logout}
+          className="shrink-0 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+        >
+          Log out
+        </button>
       </div>
     </header>
   );

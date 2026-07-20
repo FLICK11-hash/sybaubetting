@@ -253,6 +253,13 @@ every 2 minutes) — the polling logic is identical either way.
    - `REDIS_URL` — only if you provisioned Redis on Render.
    - `ODDS_API_PROVIDER` — `the-odds-api` (or `mock-provider` for a demo
      deployment with no API key).
+   - `APP_PASSWORD` — **required if anyone besides you will have this
+     URL.** There is no per-user login system; this one passphrase gates
+     every page and every `/api/*` route via `src/proxy.ts`. Leaving it
+     unset means the deployed app — including your bet history and the
+     ability to create/edit data — is open to anyone with the link. Local
+     dev works fine without it (no login prompt at all); production
+     deployments you intend to share should always set it.
    - Do **not** set `ODDS_API_KEY` on Vercel — the browser-facing app never
      calls the odds provider directly, only the worker does. Leaving it
      unset on Vercel is correct, not an oversight.
@@ -330,11 +337,14 @@ SCHEMA_CHANGES.md      every deviation from the ERD, and why
 Being explicit about what this MVP does **not** do, per the brief's
 instruction not to claim more than what's implemented and tested:
 
-- **No authentication.** This is a private, single-user app with one
-  seeded user row. There's no login flow, session handling, or access
-  control on the API routes — anyone who can reach the deployed URL can
-  use it. Acceptable for a personal tool behind, e.g., Vercel deployment
-  protection; not acceptable to expose publicly as-is.
+- **One shared password, not per-user accounts.** `src/proxy.ts` gates the
+  whole app (every page, every `/api/*` route) behind a single passphrase
+  (`APP_PASSWORD`) via an HttpOnly signed cookie (`src/lib/auth/session.ts`)
+  — there's no concept of separate user accounts, roles, or permissions.
+  Everyone who has the password has full access to everything, including
+  each other's bet history if you share it with more than one person. Fine
+  for a personal tool shared with a few trusted people; not a substitute
+  for real multi-user access control.
 - **CUSTOM_MODEL fair-probability estimates aren't computed automatically.**
   The database and calculator support `estimationMethod: "CUSTOM_MODEL"`,
   but nothing in the worker or API currently lets you enter a custom model
@@ -385,8 +395,9 @@ Roughly in priority order, per the brief's own phasing ("live betting,
 advanced arbitrage, historical analytics, user accounts, and additional
 providers only after the core system works"):
 
-1. **Authentication**, even lightweight (a single shared password / Vercel
-   deployment protection) before deploying anywhere reachable by others.
+1. **Per-user accounts**, if this is ever shared with people who shouldn't
+   see each other's bet history — today's `APP_PASSWORD` gate is one
+   shared passphrase for everyone, not per-user access control.
 2. **Connection pooling** (PgBouncer in front of Render Postgres, or
    Prisma Accelerate) before any real concurrent load.
 3. **A second odds provider** implementing `OddsProvider` (SportsGameOdds
