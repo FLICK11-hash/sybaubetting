@@ -1,0 +1,616 @@
+// sybaubetting — Prisma schema
+//
+// Source of truth: docs/erd.pdf (attached ERD). Deviations from the ERD are
+// documented in SCHEMA_CHANGES.md — search for the same table/field names
+// there for the rationale behind each change.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Providers, sportsbooks, regions
+// ---------------------------------------------------------------------------
+
+model ApiProvider {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  baseUrl   String   @map("base_url")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  providerSportsbooks ProviderSportsbook[]
+  providerLeagues     ProviderLeague[]
+  providerTeams       ProviderTeam[]
+  providerPlayers     ProviderPlayer[]
+  providerEvents      ProviderEvent[]
+  providerMarketTypes ProviderMarketType[]
+  oddsSnapshots       OddsSnapshot[]
+
+  @@map("api_providers")
+}
+
+model Sportsbook {
+  id         Int      @id @default(autoincrement())
+  name       String
+  slug       String   @unique
+  websiteUrl String?  @map("website_url")
+  logoUrl    String?  @map("logo_url")
+  /// Treated as a "sharp" reference book for fair-probability estimation (Settings page).
+  isSharp    Boolean  @default(false) @map("is_sharp")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  regions             SportsbookRegion[]
+  providerSportsbooks ProviderSportsbook[]
+  oddsSnapshots       OddsSnapshot[]
+  promotions          Promotion[]
+  placedBets          PlacedBet[]
+  fairProbEstimates   FairProbabilityEstimate[] @relation("ReferenceSportsbook")
+
+  @@map("sportsbooks")
+}
+
+model SportsbookRegion {
+  id           Int     @id @default(autoincrement())
+  sportsbookId Int     @map("sportsbook_id")
+  countryCode  String  @map("country_code")
+  stateCode    String? @map("state_code")
+  active       Boolean @default(true)
+
+  sportsbook Sportsbook @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
+
+  @@unique([sportsbookId, countryCode, stateCode])
+  @@map("sportsbook_regions")
+}
+
+/// Maps an internal sportsbook to how a given odds API provider identifies it.
+model ProviderSportsbook {
+  id                    Int    @id @default(autoincrement())
+  apiProviderId         Int    @map("api_provider_id")
+  sportsbookId          Int    @map("sportsbook_id")
+  externalSportsbookId  String @map("external_sportsbook_id")
+
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
+  sportsbook  Sportsbook  @relation(fields: [sportsbookId], references: [id], onDelete: Cascade)
+
+  @@unique([apiProviderId, externalSportsbookId])
+  @@unique([apiProviderId, sportsbookId])
+  @@map("provider_sportsbooks")
+}
+
+// ---------------------------------------------------------------------------
+// Sports / leagues / teams / players
+// ---------------------------------------------------------------------------
+
+model Sport {
+  id     Int     @id @default(autoincrement())
+  name   String
+  slug   String  @unique
+  active Boolean @default(true)
+
+  leagues League[]
+
+  @@map("sports")
+}
+
+model League {
+  id           Int     @id @default(autoincrement())
+  sportId      Int     @map("sport_id")
+  name         String
+  abbreviation String?
+  countryCode  String? @map("country_code")
+  active       Boolean @default(true)
+
+  sport           Sport            @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  teams           Team[]
+  events          Event[]
+  markets         Market[]
+  providerLeagues ProviderLeague[]
+
+  @@unique([sportId, name])
+  @@map("leagues")
+}
+
+/// Maps an internal league to a provider's "sport key" (e.g. The Odds API's
+/// `basketball_nba`). Not present in the ERD — see SCHEMA_CHANGES.md.
+model ProviderLeague {
+  id                Int    @id @default(autoincrement())
+  apiProviderId     Int    @map("api_provider_id")
+  leagueId          Int    @map("league_id")
+  externalLeagueKey String @map("external_league_key")
+  active            Boolean @default(true)
+
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
+  league      League      @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([apiProviderId, externalLeagueKey])
+  @@unique([apiProviderId, leagueId])
+  @@map("provider_leagues")
+}
+
+model Team {
+  id           Int     @id @default(autoincrement())
+  leagueId     Int     @map("league_id")
+  name         String
+  abbreviation String?
+  city         String?
+  active       Boolean @default(true)
+
+  league          League           @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  players         Player[]
+  homeEvents      Event[]          @relation("HomeTeam")
+  awayEvents      Event[]          @relation("AwayTeam")
+  marketsAsSubject Market[]        @relation("MarketTeamSubject")
+  outcomesAsTeam  Outcome[]        @relation("OutcomeTeam")
+  handicapLines   MarketLine[]     @relation("HandicapTeam")
+  providerTeams   ProviderTeam[]
+
+  @@unique([leagueId, name])
+  @@map("teams")
+}
+
+model ProviderTeam {
+  id               Int    @id @default(autoincrement())
+  apiProviderId    Int    @map("api_provider_id")
+  teamId           Int    @map("team_id")
+  externalTeamName String @map("external_team_name")
+
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
+  team        Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([apiProviderId, externalTeamName])
+  @@map("provider_teams")
+}
+
+model Player {
+  id             Int     @id @default(autoincrement())
+  currentTeamId  Int?    @map("current_team_id")
+  name           String
+  normalizedName String  @map("normalized_name")
+  active         Boolean @default(true)
+
+  currentTeam      Team?             @relation(fields: [currentTeamId], references: [id])
+  marketsAsSubject Market[]          @relation("MarketPlayerSubject")
+  outcomesAsPlayer Outcome[]         @relation("OutcomePlayer")
+  providerPlayers  ProviderPlayer[]
+
+  @@index([normalizedName])
+  @@map("players")
+}
+
+model ProviderPlayer {
+  id                 Int    @id @default(autoincrement())
+  apiProviderId      Int    @map("api_provider_id")
+  playerId           Int    @map("player_id")
+  externalPlayerName String @map("external_player_name")
+
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
+  player      Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([apiProviderId, externalPlayerName])
+  @@map("provider_players")
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+enum EventStatus {
+  SCHEDULED
+  LIVE
+  FINAL
+  POSTPONED
+  CANCELED
+
+  @@map("event_status")
+}
+
+model Event {
+  id          Int         @id @default(autoincrement())
+  leagueId    Int         @map("league_id")
+  homeTeamId  Int         @map("home_team_id")
+  awayTeamId  Int         @map("away_team_id")
+  name        String
+  startTime   DateTime    @map("start_time")
+  status      EventStatus @default(SCHEDULED)
+  neutralSite Boolean     @default(false) @map("neutral_site")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  league         League          @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  homeTeam       Team            @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam       Team            @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  providerEvents ProviderEvent[]
+  markets        Market[]
+
+  @@unique([leagueId, homeTeamId, awayTeamId, startTime])
+  @@index([startTime])
+  @@map("events")
+}
+
+model ProviderEvent {
+  id               Int    @id @default(autoincrement())
+  apiProviderId    Int    @map("api_provider_id")
+  eventId          Int    @map("event_id")
+  externalEventId  String @map("external_event_id")
+
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
+  event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([apiProviderId, externalEventId])
+  @@unique([apiProviderId, eventId])
+  @@map("provider_events")
+}
+
+// ---------------------------------------------------------------------------
+// Market types / markets / lines / outcomes
+// ---------------------------------------------------------------------------
+
+/// category groups market types for filtering (e.g. "game", "player_prop", "future")
+model MarketType {
+  id                    Int     @id @default(autoincrement())
+  code                  String  @unique
+  name                  String
+  category              String
+  hasLine               Boolean @map("has_line")
+  expectedOutcomeCount  Int     @map("expected_outcome_count")
+  active                Boolean @default(true)
+
+  markets             Market[]
+  providerMarketTypes ProviderMarketType[]
+
+  @@map("market_types")
+}
+
+model ProviderMarketType {
+  id                 Int    @id @default(autoincrement())
+  apiProviderId      Int    @map("api_provider_id")
+  marketTypeId       Int    @map("market_type_id")
+  externalMarketKey  String @map("external_market_key")
+
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
+  marketType  MarketType  @relation(fields: [marketTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([apiProviderId, externalMarketKey])
+  @@map("provider_market_types")
+}
+
+enum MarketStatus {
+  OPEN
+  SUSPENDED
+  CLOSED
+
+  @@map("market_status")
+}
+
+/// The betting question being offered (e.g. "LeBron James total points",
+/// "Lakers vs Celtics moneyline"). `period` values are free-form but
+/// controlled in code — see src/lib/normalization/periods.ts.
+///
+/// `eventId` is nullable — a deliberate deviation from the ERD (see
+/// SCHEMA_CHANGES.md): futures/outright markets ("NBA Championship Winner")
+/// aren't tied to a single game, so they anchor on `leagueId` alone.
+model Market {
+  id           Int          @id @default(autoincrement())
+  eventId      Int?         @map("event_id")
+  leagueId     Int          @map("league_id")
+  marketTypeId Int          @map("market_type_id")
+  playerId     Int?         @map("player_id")
+  teamId       Int?         @map("team_id")
+  title        String
+  period       String       @default("full_game")
+  status       MarketStatus @default(OPEN)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  event      Event?     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  league     League     @relation(fields: [leagueId], references: [id])
+  marketType MarketType @relation(fields: [marketTypeId], references: [id])
+  player     Player?    @relation("MarketPlayerSubject", fields: [playerId], references: [id])
+  team       Team?      @relation("MarketTeamSubject", fields: [teamId], references: [id])
+
+  lines MarketLine[]
+
+  // Natural key for de-duplication during market matching. `leagueId` is
+  // included so futures markets (eventId null) still dedupe correctly per
+  // league. `playerId`/`teamId`/`eventId` participate via a partial approach
+  // in application code because Postgres treats NULLs as distinct in unique
+  // indexes (see SCHEMA_CHANGES.md).
+  @@unique([eventId, leagueId, marketTypeId, playerId, teamId, period])
+  @@index([eventId])
+  @@map("markets")
+}
+
+/// The numerical threshold/handicap for a market. Markets without a numeric
+/// line (e.g. futures outright winner) get a single MarketLine row with a
+/// null lineValue so outcomes always hang off a MarketLine.
+model MarketLine {
+  id             Int      @id @default(autoincrement())
+  marketId       Int      @map("market_id")
+  lineValue      Decimal? @map("line_value") @db.Decimal(10, 3)
+  handicapTeamId Int?     @map("handicap_team_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  market        Market    @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  handicapTeam  Team?     @relation("HandicapTeam", fields: [handicapTeamId], references: [id])
+  outcomes      Outcome[]
+  arbitrageOpportunities ArbitrageOpportunity[]
+
+  @@unique([marketId, lineValue, handicapTeamId])
+  @@map("market_lines")
+}
+
+/// The selectable side of a market line (e.g. "Over 25.5", "Lakers").
+model Outcome {
+  id               Int    @id @default(autoincrement())
+  marketLineId     Int    @map("market_line_id")
+  outcomeType      String @map("outcome_type")
+  teamId           Int?   @map("team_id")
+  playerId         Int?   @map("player_id")
+  label            String
+  normalizedLabel  String @map("normalized_label")
+
+  marketLine MarketLine @relation(fields: [marketLineId], references: [id], onDelete: Cascade)
+  team       Team?      @relation("OutcomeTeam", fields: [teamId], references: [id])
+  player     Player?    @relation("OutcomePlayer", fields: [playerId], references: [id])
+
+  oddsSnapshots     OddsSnapshot[]
+  fairProbEstimates FairProbabilityEstimate[]
+  placedBets        PlacedBet[]
+
+  @@unique([marketLineId, normalizedLabel])
+  @@map("outcomes")
+}
+
+// ---------------------------------------------------------------------------
+// Odds snapshots (time-series, append-only)
+// ---------------------------------------------------------------------------
+
+/// A sportsbook's price for a specific outcome at a specific time. Rows are
+/// never overwritten. `isCurrent` marks the latest snapshot per
+/// (outcome, sportsbook) pair for O(1) "current odds" lookups — see
+/// SCHEMA_CHANGES.md for why this was added on top of the ERD.
+model OddsSnapshot {
+  id                 Int      @id @default(autoincrement())
+  outcomeId          Int      @map("outcome_id")
+  sportsbookId       Int      @map("sportsbook_id")
+  apiProviderId      Int      @map("api_provider_id")
+  americanOdds       Int      @map("american_odds")
+  decimalOdds        Decimal  @map("decimal_odds") @db.Decimal(10, 4)
+  impliedProbability Decimal  @map("implied_probability") @db.Decimal(8, 6)
+  available          Boolean  @default(true)
+  maxStake           Decimal? @map("max_stake") @db.Decimal(12, 2)
+  isCurrent          Boolean  @default(true) @map("is_current")
+  capturedAt         DateTime @map("captured_at")
+  receivedAt         DateTime @default(now()) @map("received_at")
+
+  outcome     Outcome     @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+  sportsbook  Sportsbook  @relation(fields: [sportsbookId], references: [id])
+  apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id])
+
+  bettingOpportunities  BettingOpportunity[]
+  arbitrageLegs         ArbitrageLeg[]
+  promotionOpportunities PromotionOpportunity[]
+  placedBets            PlacedBet[]
+
+  @@index([outcomeId, sportsbookId, isCurrent])
+  @@index([outcomeId, capturedAt])
+  @@index([capturedAt])
+  @@map("odds_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// Fair probability + betting opportunities
+// ---------------------------------------------------------------------------
+
+enum EstimationMethod {
+  NO_VIG
+  SHARP_REFERENCE
+  CONSENSUS
+  CUSTOM_MODEL
+
+  @@map("estimation_method")
+}
+
+model FairProbabilityEstimate {
+  id                   Int              @id @default(autoincrement())
+  outcomeId            Int              @map("outcome_id")
+  probability          Decimal          @db.Decimal(8, 6)
+  estimationMethod     EstimationMethod @map("estimation_method")
+  referenceSportsbookId Int?            @map("reference_sportsbook_id")
+  calculatedAt         DateTime         @default(now()) @map("calculated_at")
+
+  outcome            Outcome     @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+  referenceSportsbook Sportsbook? @relation("ReferenceSportsbook", fields: [referenceSportsbookId], references: [id])
+
+  bettingOpportunities BettingOpportunity[]
+
+  @@index([outcomeId, calculatedAt])
+  @@map("fair_probability_estimates")
+}
+
+model BettingOpportunity {
+  id                        Int      @id @default(autoincrement())
+  oddsSnapshotId             Int      @map("odds_snapshot_id")
+  fairProbabilityEstimateId  Int?     @map("fair_probability_estimate_id")
+  expectedValuePercent       Decimal? @map("expected_value_percent") @db.Decimal(10, 4)
+  edgePercent                Decimal? @map("edge_percent") @db.Decimal(10, 4)
+  outlierScore                Decimal? @map("outlier_score") @db.Decimal(10, 4)
+  bestPriceInMarket           Boolean  @default(false) @map("best_price_in_market")
+  recommendedStake            Decimal? @map("recommended_stake") @db.Decimal(12, 2)
+  calculatedAt                 DateTime @default(now()) @map("calculated_at")
+
+  oddsSnapshot            OddsSnapshot              @relation(fields: [oddsSnapshotId], references: [id], onDelete: Cascade)
+  fairProbabilityEstimate FairProbabilityEstimate?  @relation(fields: [fairProbabilityEstimateId], references: [id])
+
+  @@unique([oddsSnapshotId])
+  @@index([expectedValuePercent])
+  @@index([outlierScore])
+  @@map("betting_opportunities")
+}
+
+// ---------------------------------------------------------------------------
+// Arbitrage
+// ---------------------------------------------------------------------------
+
+model ArbitrageOpportunity {
+  id                        Int      @id @default(autoincrement())
+  marketLineId               Int      @map("market_line_id")
+  totalImpliedProbability    Decimal  @map("total_implied_probability") @db.Decimal(8, 6)
+  profitPercent               Decimal  @map("profit_percent") @db.Decimal(10, 4)
+  detectedAt                   DateTime @default(now()) @map("detected_at")
+  expiresAt                    DateTime @map("expires_at")
+
+  marketLine MarketLine     @relation(fields: [marketLineId], references: [id], onDelete: Cascade)
+  legs       ArbitrageLeg[]
+
+  @@index([marketLineId])
+  @@index([expiresAt])
+  @@map("arbitrage_opportunities")
+}
+
+model ArbitrageLeg {
+  id                       Int     @id @default(autoincrement())
+  arbitrageOpportunityId    Int     @map("arbitrage_opportunity_id")
+  oddsSnapshotId             Int     @map("odds_snapshot_id")
+  stakePercentage             Decimal @map("stake_percentage") @db.Decimal(8, 6)
+
+  arbitrageOpportunity ArbitrageOpportunity @relation(fields: [arbitrageOpportunityId], references: [id], onDelete: Cascade)
+  oddsSnapshot          OddsSnapshot         @relation(fields: [oddsSnapshotId], references: [id])
+
+  @@unique([arbitrageOpportunityId, oddsSnapshotId])
+  @@map("arbitrage_legs")
+}
+
+// ---------------------------------------------------------------------------
+// Promotions
+// ---------------------------------------------------------------------------
+
+enum PromotionType {
+  PROFIT_BOOST
+  BONUS_BET
+  NO_SWEAT
+  ODDS_BOOST
+  DEPOSIT_BONUS
+  BET_CREDIT
+
+  @@map("promotion_type")
+}
+
+model Promotion {
+  id             Int           @id @default(autoincrement())
+  sportsbookId   Int           @map("sportsbook_id")
+  name           String
+  promotionType  PromotionType @map("promotion_type")
+  boostPercent   Decimal?      @map("boost_percent") @db.Decimal(8, 4)
+  maxStake       Decimal?      @map("max_stake") @db.Decimal(12, 2)
+  minDecimalOdds Decimal?      @map("min_decimal_odds") @db.Decimal(10, 4)
+  maxDecimalOdds Decimal?      @map("max_decimal_odds") @db.Decimal(10, 4)
+  stakeReturned  Boolean       @default(false) @map("stake_returned")
+  startsAt       DateTime?     @map("starts_at")
+  expiresAt      DateTime?     @map("expires_at")
+  active         Boolean       @default(true)
+  /// Free-text notes field requested for the Promotions page.
+  notes          String?
+
+  sportsbook Sportsbook @relation(fields: [sportsbookId], references: [id])
+
+  opportunities PromotionOpportunity[]
+  placedBets    PlacedBet[]
+
+  @@index([sportsbookId, active])
+  @@map("promotions")
+}
+
+model PromotionOpportunity {
+  id                    Int      @id @default(autoincrement())
+  promotionId            Int      @map("promotion_id")
+  oddsSnapshotId          Int      @map("odds_snapshot_id")
+  boostedDecimalOdds       Decimal  @map("boosted_decimal_odds") @db.Decimal(10, 4)
+  expectedValuePercent     Decimal  @map("expected_value_percent") @db.Decimal(10, 4)
+  expectedProfit            Decimal  @map("expected_profit") @db.Decimal(12, 2)
+  calculatedAt               DateTime @default(now()) @map("calculated_at")
+
+  promotion    Promotion    @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  oddsSnapshot OddsSnapshot @relation(fields: [oddsSnapshotId], references: [id], onDelete: Cascade)
+
+  @@index([promotionId])
+  @@map("promotion_opportunities")
+}
+
+// ---------------------------------------------------------------------------
+// Users / placed bets / app settings
+// ---------------------------------------------------------------------------
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  placedBets PlacedBet[]
+
+  @@map("users")
+}
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+  PUSH
+  CASHED_OUT
+  VOID
+
+  @@map("bet_status")
+}
+
+model PlacedBet {
+  id                     Int       @id @default(autoincrement())
+  userId                 Int       @map("user_id")
+  outcomeId              Int       @map("outcome_id")
+  sportsbookId           Int       @map("sportsbook_id")
+  promotionId            Int?      @map("promotion_id")
+  /// Snapshot the bet was placed against, for closing-line-value comparisons.
+  oddsSnapshotId         Int?      @map("odds_snapshot_id")
+  stake                  Decimal   @db.Decimal(12, 2)
+  americanOdds           Int       @map("american_odds")
+  decimalOdds            Decimal   @map("decimal_odds") @db.Decimal(10, 4)
+  potentialProfit        Decimal   @map("potential_profit") @db.Decimal(12, 2)
+  status                 BetStatus @default(PENDING)
+  placedAt               DateTime  @default(now()) @map("placed_at")
+  settledAt              DateTime? @map("settled_at")
+  actualProfit           Decimal?  @map("actual_profit") @db.Decimal(12, 2)
+  /// Consensus/closing decimal odds captured at event start, used for CLV.
+  closingDecimalOdds     Decimal?  @map("closing_decimal_odds") @db.Decimal(10, 4)
+  closingLineValuePercent Decimal? @map("closing_line_value_percent") @db.Decimal(10, 4)
+
+  user         User          @relation(fields: [userId], references: [id])
+  outcome      Outcome       @relation(fields: [outcomeId], references: [id])
+  sportsbook   Sportsbook    @relation(fields: [sportsbookId], references: [id])
+  promotion    Promotion?    @relation(fields: [promotionId], references: [id])
+  oddsSnapshot OddsSnapshot? @relation(fields: [oddsSnapshotId], references: [id])
+
+  @@index([userId, status])
+  @@map("placed_bets")
+}
+
+/// Singleton row (id always 1) backing the Settings page. Not present in the
+/// ERD — see SCHEMA_CHANGES.md.
+model Settings {
+  id                      Int      @id @default(1)
+  refreshFrequencySeconds Int      @default(120) @map("refresh_frequency_seconds")
+  minEvPercentThreshold   Decimal  @default(2) @map("min_ev_percent_threshold") @db.Decimal(6, 2)
+  maxQuoteAgeSeconds       Int      @default(600) @map("max_quote_age_seconds")
+  bankroll                Decimal  @default(0) @map("bankroll") @db.Decimal(12, 2)
+  defaultStakeSize         Decimal  @default(0) @map("default_stake_size") @db.Decimal(12, 2)
+  consensusMethod           String   @default("median") @map("consensus_method")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
