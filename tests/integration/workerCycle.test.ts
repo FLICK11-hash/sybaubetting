@@ -103,6 +103,24 @@ describe("runWorkerCycle (mock provider, real Postgres)", () => {
     expect(marketsAfterSecond).toBe(marketsAfterFirst);
   });
 
+  it("never leaves more than one is_current snapshot per (outcome, sportsbook), across repeated cycles", async () => {
+    const { provider } = await seedForWorker();
+    const mockProvider = new MockOddsProvider();
+
+    await runWorkerCycle(testPrisma, mockProvider, provider.id);
+    await runWorkerCycle(testPrisma, mockProvider, provider.id);
+    await runWorkerCycle(testPrisma, mockProvider, provider.id);
+
+    const currentSnapshots = await testPrisma.oddsSnapshot.findMany({ where: { isCurrent: true } });
+    const seen = new Set<string>();
+    for (const snap of currentSnapshots) {
+      const key = `${snap.outcomeId}:${snap.sportsbookId}`;
+      expect(seen.has(key)).toBe(false); // would indicate a duplicate "current" pointer
+      seen.add(key);
+    }
+    expect(currentSnapshots.length).toBeGreaterThan(0);
+  });
+
   it("marks the best price among sportsbooks correctly (matches the spec's FanDuel example)", async () => {
     const { provider } = await seedForWorker();
     const mockProvider = new MockOddsProvider();

@@ -408,7 +408,8 @@ model OddsSnapshot {
   sportsbook  Sportsbook  @relation(fields: [sportsbookId], references: [id])
   apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id])
 
-  bettingOpportunities  BettingOpportunity[]
+  // 1:1 with BettingOpportunity (enforced by @@unique([oddsSnapshotId]) there) -- at most one opportunity row per snapshot.
+  bettingOpportunity    BettingOpportunity?
   arbitrageLegs         ArbitrageLeg[]
   promotionOpportunities PromotionOpportunity[]
   placedBets            PlacedBet[]
