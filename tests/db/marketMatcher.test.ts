@@ -180,7 +180,7 @@ describe("MarketMatcher - market/line/outcome duplicate prevention", () => {
   beforeEach(resetTestDb);
 
   it("does not create duplicate markets/lines/outcomes when the same quote is ingested twice", async () => {
-    const { provider, league, celtics, lakers, moneyline } = await seedMinimalFixture(testPrisma);
+    const { provider, league, moneyline } = await seedMinimalFixture(testPrisma);
     const matcher = new MarketMatcher(testPrisma, provider.id);
     const { eventId, homeTeamId, awayTeamId } = await matcher.resolveEvent(league.id, {
       id: "ext-1",
@@ -294,7 +294,7 @@ describe("MarketMatcher - market/line/outcome duplicate prevention", () => {
   });
 
   it("gives spread outcomes for opposite teams separate MarketLines even under the same market", async () => {
-    const { provider, league, moneyline: _ml, spread } = await seedMinimalFixture(testPrisma);
+    const { provider, league, spread } = await seedMinimalFixture(testPrisma);
     const matcher = new MarketMatcher(testPrisma, provider.id);
     const { eventId, homeTeamId, awayTeamId } = await matcher.resolveEvent(league.id, {
       id: "ext-1",

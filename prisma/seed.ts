@@ -7,10 +7,8 @@ import { NBA_TEAMS } from "../src/lib/seedData/nbaTeams";
 import { EPL_TEAMS } from "../src/lib/seedData/eplTeams";
 import { NBA_PLAYERS } from "../src/lib/seedData/nbaPlayers";
 import { americanToDecimal, decimalToImpliedProbability, roundDecimalOdds, roundProbability } from "../src/lib/odds/conversion";
-import { noVigProbabilityTwoWay } from "../src/lib/odds/noVig";
-import { expectedValue } from "../src/lib/odds/expectedValue";
-import { detectOutliers } from "../src/lib/odds/outliers";
-import { detectArbitrage } from "../src/lib/odds/arbitrage";
+import { recalculateOutcomeOpportunities } from "../src/lib/worker/opportunityCalculator";
+import { recalculateMarketLineArbitrage } from "../src/lib/worker/arbitrageScanner";
 
 const prisma = new PrismaClient();
 
@@ -381,32 +379,12 @@ async function main() {
   });
   const [bucksMl, nuggetsMl] = arbMoneyline;
   // Two different books pricing each side generously enough to create arbitrage
-  const bucksSnap = await snapshot(bucksMl.outcomeId, "draftkings", 150, now); // 2.5 decimal
-  const nuggetsSnap = await snapshot(nuggetsMl.outcomeId, "fanduel", 120, now); // 2.2 decimal
+  // (1/2.5 + 1/2.2 = 85.5% < 100%). Actual ArbitrageOpportunity rows are
+  // computed below by the same scanner the worker uses, from these snapshots.
+  await snapshot(bucksMl.outcomeId, "draftkings", 150, now); // 2.5 decimal
+  await snapshot(nuggetsMl.outcomeId, "fanduel", 120, now); // 2.2 decimal
   await snapshot(bucksMl.outcomeId, "fanduel", -140, now);
   await snapshot(nuggetsMl.outcomeId, "draftkings", -130, now);
-
-  const twoWayArb = detectArbitrage([
-    { outcomeKey: "bucks", sportsbookId: sbId("draftkings"), decimalOdds: 2.5 },
-    { outcomeKey: "nuggets", sportsbookId: sbId("fanduel"), decimalOdds: 2.2 },
-  ]);
-  if (twoWayArb.isArbitrage) {
-    const marketLine = await prisma.marketLine.findFirstOrThrow({ where: { id: bucksMl.marketLineId } });
-    const opp = await prisma.arbitrageOpportunity.create({
-      data: {
-        marketLineId: marketLine.id,
-        totalImpliedProbability: twoWayArb.totalImpliedProbability,
-        profitPercent: twoWayArb.profitPercent,
-        expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
-      },
-    });
-    await prisma.arbitrageLeg.create({
-      data: { arbitrageOpportunityId: opp.id, oddsSnapshotId: bucksSnap.id, stakePercentage: twoWayArb.legs[0].stakePercentage },
-    });
-    await prisma.arbitrageLeg.create({
-      data: { arbitrageOpportunityId: opp.id, oddsSnapshotId: nuggetsSnap.id, stakePercentage: twoWayArb.legs[1].stakePercentage },
-    });
-  }
 
   // ---- 5) Three-way soccer arbitrage: Arsenal vs Chelsea ------------------
   const soccerMoneyline = await matcher.resolveGameMarketOutcomes({
@@ -431,37 +409,14 @@ async function main() {
     },
   });
   const [arsenalOutcome, drawOutcome, chelseaOutcome] = soccerMoneyline;
-  const arsenalSnap = await snapshot(arsenalOutcome.outcomeId, "draftkings", 350, now); // 4.5 decimal
-  const drawSnap = await snapshot(drawOutcome.outcomeId, "fanduel", 300, now); // 4.0 decimal
-  const chelseaSnap = await snapshot(chelseaOutcome.outcomeId, "betmgm", 350, now); // 4.5 decimal
+  // Home/draw/away all priced generously enough to create arbitrage
+  // (1/4.5 + 1/4.0 + 1/4.5 = 69.4% < 100%).
+  await snapshot(arsenalOutcome.outcomeId, "draftkings", 350, now); // 4.5 decimal
+  await snapshot(drawOutcome.outcomeId, "fanduel", 300, now); // 4.0 decimal
+  await snapshot(chelseaOutcome.outcomeId, "betmgm", 350, now); // 4.5 decimal
   await snapshot(arsenalOutcome.outcomeId, "fanduel", 280, now);
   await snapshot(drawOutcome.outcomeId, "draftkings", 260, now);
   await snapshot(chelseaOutcome.outcomeId, "draftkings", 300, now);
-
-  const threeWayArb = detectArbitrage([
-    { outcomeKey: "arsenal", sportsbookId: sbId("draftkings"), decimalOdds: 4.5 },
-    { outcomeKey: "draw", sportsbookId: sbId("fanduel"), decimalOdds: 4.0 },
-    { outcomeKey: "chelsea", sportsbookId: sbId("betmgm"), decimalOdds: 4.5 },
-  ]);
-  if (threeWayArb.isArbitrage) {
-    const opp = await prisma.arbitrageOpportunity.create({
-      data: {
-        marketLineId: arsenalOutcome.marketLineId,
-        totalImpliedProbability: threeWayArb.totalImpliedProbability,
-        profitPercent: threeWayArb.profitPercent,
-        expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
-      },
-    });
-    for (const [leg, snap] of [
-      [threeWayArb.legs[0], arsenalSnap],
-      [threeWayArb.legs[1], drawSnap],
-      [threeWayArb.legs[2], chelseaSnap],
-    ] as const) {
-      await prisma.arbitrageLeg.create({
-        data: { arbitrageOpportunityId: opp.id, oddsSnapshotId: snap.id, stakePercentage: leg.stakePercentage },
-      });
-    }
-  }
 
   // ---- 5b) Futures market: NBA Championship Winner (no single game event) ----
   const futuresTargets = await matcher.resolveFuturesOutcomes({
@@ -487,49 +442,29 @@ async function main() {
   await snapshot(lakersFuture.outcomeId, "draftkings", 1200, now);
   await snapshot(lakersFuture.outcomeId, "betmgm", 1100, now);
 
-  // ---- 6) Fair probability + betting opportunity for the LeBron 25.5 Over ----
-  // No-vig using DraftKings' own over/under (a single-book de-vig), then EV
-  // vs. FanDuel's price -- demonstrates the full estimation -> EV pipeline.
-  const dkOverImplied = decimalToImpliedProbability(roundDecimalOdds(americanToDecimal(-115)));
-  const dkUnderImplied = decimalToImpliedProbability(roundDecimalOdds(americanToDecimal(-105)));
-  const { fairProbabilityA: fairOverProb } = noVigProbabilityTwoWay(dkOverImplied, dkUnderImplied);
+  // ---- 6) Best price / consensus / fair probability / EV / arbitrage -----
+  // Run the exact same calculation pipeline the background worker uses
+  // (src/lib/worker/*), over every outcome and market line created above,
+  // so the seeded dashboard reflects real computed data rather than a
+  // hand-picked example.
+  const allTargets = [
+    ...moneylineTargets,
+    ...spreadTargets,
+    ...totalTargets,
+    ...lebron255,
+    ...lebron265,
+    ...arbMoneyline,
+    ...soccerMoneyline,
+    ...futuresTargets,
+  ];
+  const outcomeIds = new Set(allTargets.map((t) => t.outcomeId));
+  const marketLineIds = new Set(allTargets.map((t) => t.marketLineId));
 
-  const fairEstimate = await prisma.fairProbabilityEstimate.create({
-    data: {
-      outcomeId: overLebron255Target.outcomeId,
-      probability: roundProbability(fairOverProb),
-      estimationMethod: "NO_VIG",
-      calculatedAt: now,
-    },
-  });
-
-  const fanDuelSnapshot = await prisma.oddsSnapshot.findFirst({
-    where: { outcomeId: overLebron255Target.outcomeId, sportsbookId: sbId("fanduel") },
-    orderBy: { capturedAt: "desc" },
-  });
-  if (fanDuelSnapshot) {
-    const decimalOdds = Number(fanDuelSnapshot.decimalOdds);
-    const ev = expectedValue(fairOverProb, decimalOdds);
-    const allCurrentPrices = await prisma.oddsSnapshot.findMany({
-      where: { outcomeId: overLebron255Target.outcomeId, isCurrent: true },
-    });
-    const outlierResults = detectOutliers(
-      allCurrentPrices.map((p) => ({ sportsbookId: p.sportsbookId, decimalOdds: Number(p.decimalOdds) })),
-      "median"
-    );
-    const fanDuelOutlier = outlierResults.find((o) => o.sportsbookId === sbId("fanduel"));
-
-    await prisma.bettingOpportunity.create({
-      data: {
-        oddsSnapshotId: fanDuelSnapshot.id,
-        fairProbabilityEstimateId: fairEstimate.id,
-        expectedValuePercent: ev * 100,
-        edgePercent: (fairOverProb - decimalToImpliedProbability(decimalOdds)) * 100,
-        outlierScore: fanDuelOutlier?.outlierScore ?? 0,
-        bestPriceInMarket: true,
-        calculatedAt: now,
-      },
-    });
+  for (const outcomeId of outcomeIds) {
+    await recalculateOutcomeOpportunities(prisma, outcomeId, { consensusMethod: "median" });
+  }
+  for (const marketLineId of marketLineIds) {
+    await recalculateMarketLineArbitrage(prisma, marketLineId);
   }
 
   // ---- 7) Promotions --------------------------------------------------
