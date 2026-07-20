@@ -69,9 +69,30 @@ the ERD's naming where unchanged.
    Promotions field; the ERD's `promotions` table doesn't have a notes
    column.
 
+8. **`provider_leagues.external_futures_key`** — The Odds API (and likely
+   other providers) models futures/outrights under a *separate* provider
+   "sport key" per league from the one used for game odds (e.g.
+   `basketball_nba` for game odds vs.
+   `basketball_nba_championship_winner` for the championship futures
+   market). The ERD's `provider_leagues` only has one external key column;
+   a second, nullable one was added rather than a second mapping row,
+   since `provider_leagues` is already uniquely keyed one-row-per-league-
+   per-provider.
+
+## Nullability changes
+
+9. **`markets.event_id` is nullable** (ERD shows it as a plain, implicitly
+   required `integer`). Futures/outright markets ("NBA Championship
+   Winner") aren't tied to any single game — forcing them onto a synthetic
+   placeholder event would be worse than modeling the truth: those markets
+   anchor on `league_id` alone, with `event_id` null. The market's natural
+   de-duplication key (`markets.@@unique`) was extended to include
+   `league_id` so futures markets still dedupe correctly per league even
+   though `event_id` is null on all of them.
+
 ## Type / constraint changes
 
-8. **Integer primary keys everywhere, including tables the ERD marks
+10. **Integer primary keys everywhere, including tables the ERD marks
    `bigint`** (`odds_snapshots`, `fair_probability_estimates`,
    `betting_opportunities`, `arbitrage_opportunities`, `arbitrage_legs`,
    `promotion_opportunities`, `placed_bets`). Postgres `integer` supports
@@ -83,7 +104,7 @@ the ERD's naming where unchanged.
    migration — documented here as a known, deliberate MVP simplification
    rather than an oversight.
 
-9. **Enums instead of free `varchar`** for `events.status`
+11. **Enums instead of free `varchar`** for `events.status`
    (`EventStatus`), `markets.status` (`MarketStatus`),
    `fair_probability_estimates.estimation_method` (`EstimationMethod`),
    `promotions.promotion_type` (`PromotionType`), and `placed_bets.status`
@@ -111,12 +132,14 @@ keys the brief describes. Added:
   maps to at most one external ID per provider, and vice versa.
 - `events(league_id, home_team_id, away_team_id, start_time)` — the natural
   key for "is this the same game."
-- `markets(event_id, market_type_id, player_id, team_id, period)` — the
-  natural key described in the brief ("same sport, league, event,
-  player/team, market type, period"). Note Postgres unique indexes treat
-  `NULL` as distinct from other `NULL`s, so this constraint alone doesn't
-  fully dedupe markets with `player_id`/`team_id` both null (e.g. a game
-  total); the market-matching upsert in
+- `markets(event_id, league_id, market_type_id, player_id, team_id, period)`
+  — the natural key described in the brief ("same sport, league, event,
+  player/team, market type, period"), with `league_id` added so futures
+  markets (`event_id` null, see nullability change #9 above) still dedupe
+  correctly per league. Note Postgres unique indexes treat `NULL` as
+  distinct from other `NULL`s, so this constraint alone doesn't fully
+  dedupe markets with `event_id`/`player_id`/`team_id` all null (e.g. a
+  futures market); the market-matching upsert in
   `src/lib/normalization/marketMatcher.ts` explicitly looks up by the full
   natural key including `IS NULL` checks before inserting, rather than
   relying on the constraint alone to reject duplicates.
