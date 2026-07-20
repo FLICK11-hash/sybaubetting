@@ -624,6 +624,10 @@ model Settings {
   bankroll                Decimal  @default(0) @map("bankroll") @db.Decimal(12, 2)
   defaultStakeSize         Decimal  @default(0) @map("default_stake_size") @db.Decimal(12, 2)
   consensusMethod           String   @default("median") @map("consensus_method")
+  /// When the worker last completed a cycle (whether or not any odds actually
+  /// changed) -- distinct from an OddsSnapshot's own receivedAt, which only
+  /// advances when a price changes. Powers the Dashboard's "last checked" indicator.
+  lastWorkerRunAt            DateTime? @map("last_worker_run_at")
   updatedAt                 DateTime @updatedAt @map("updated_at")
 
   @@map("settings")

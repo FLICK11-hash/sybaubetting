@@ -29,3 +29,15 @@ export async function getOrSetCache<T>(key: string, ttlSeconds: number, compute:
 
   return value;
 }
+
+/** Drops a cached key so the next read recomputes fresh -- a no-op if Redis isn't configured. */
+export async function invalidateCache(key: string): Promise<void> {
+  const redis = getRedisClient();
+  if (!redis) return;
+
+  try {
+    await redis.del(key);
+  } catch (err) {
+    console.error(`Redis DEL failed for key "${key}" (cache will expire on its own TTL):`, err);
+  }
+}

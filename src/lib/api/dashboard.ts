@@ -60,7 +60,7 @@ const opportunityInclude = {
 export async function getDashboardData() {
   const now = new Date();
 
-  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets] =
+  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets, settings] =
     await Promise.all([
       prisma.bettingOpportunity.findMany({
         where: { expectedValuePercent: { gt: 0 }, oddsSnapshot: { isCurrent: true } },
@@ -100,6 +100,7 @@ export async function getDashboardData() {
         take: TOP_N,
         include: { event: true, marketType: true },
       }),
+      prisma.settings.findUnique({ where: { id: 1 }, select: { lastWorkerRunAt: true } }),
     ]);
 
   const largestOutliers = [...outliersDesc, ...outliersAsc]
@@ -108,6 +109,7 @@ export async function getDashboardData() {
     .slice(0, TOP_N);
 
   return {
+    lastWorkerRunAt: settings?.lastWorkerRunAt?.toISOString() ?? null,
     topExpectedValueOpportunities: topEv.map(serializeOpportunity),
     bestLineOpportunities: bestLines.map(serializeOpportunity),
     largestOutliers: largestOutliers.map(serializeOpportunity),

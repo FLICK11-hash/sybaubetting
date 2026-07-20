@@ -186,6 +186,22 @@ transient HTTP failures (`src/lib/providers/httpClient.ts`); the worker
 also tracks the provider's rate-limit headers and stops starting new
 requests if the remaining quota drops low.
 
+The frontend never triggers a poll on its own -- reloading a page just
+re-reads whatever the worker last wrote to Postgres. Two ways to actually
+get fresh data:
+
+- Run `npm run worker` (continuous mode) in a second terminal while you use
+  the app, so odds refresh automatically in the background every
+  `settings.refresh_frequency_seconds` (2 minutes by default) regardless of
+  which page is open.
+- Click **"Refresh odds now"** on the Dashboard, which calls
+  `POST /api/worker/run` to run exactly one cycle on demand -- the same work
+  `npm run worker:once` does, without leaving your terminal. The "Last
+  checked" timestamp next to it reflects the most recent completed cycle
+  (`settings.last_worker_run_at`), even if that cycle found no price changes
+  to write. Each click spends real provider request quota, so avoid mashing
+  it if you're on a metered plan.
+
 ## Testing
 
 ```bash
