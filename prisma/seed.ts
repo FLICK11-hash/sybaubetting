@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { MarketMatcher } from "../src/lib/normalization/marketMatcher";
 import { MARKET_TYPE_CATALOG } from "../src/lib/normalization/marketTypeCatalog";
