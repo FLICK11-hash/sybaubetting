@@ -468,58 +468,7 @@ async function main() {
     await recalculateMarketLineArbitrage(prisma, marketLineId);
   }
 
-  // ---- 7) Promotions --------------------------------------------------
-  await prisma.promotion.createMany({
-    data: [
-      {
-        sportsbookId: sbId("draftkings"),
-        name: "New User Bonus Bet",
-        promotionType: "BONUS_BET",
-        maxStake: 200,
-        stakeReturned: false,
-        active: true,
-        expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-        notes: "Bet $5, get $200 in bonus bets on any market.",
-      },
-      {
-        sportsbookId: sbId("fanduel"),
-        name: "No Sweat First Bet",
-        promotionType: "NO_SWEAT",
-        maxStake: 300,
-        stakeReturned: true,
-        active: true,
-        expiresAt: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
-        notes: "First bet refunded as a bonus bet if it loses.",
-      },
-      {
-        sportsbookId: sbId("betmgm"),
-        name: "20% Profit Boost Token",
-        promotionType: "PROFIT_BOOST",
-        boostPercent: 20,
-        maxStake: 100,
-        minDecimalOdds: 1.5,
-        stakeReturned: false,
-        active: true,
-        expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-        notes: "Applies to any single game parlay or straight bet.",
-      },
-      {
-        sportsbookId: sbId("betrivers"),
-        name: "Same Game Parlay Odds Boost",
-        promotionType: "ODDS_BOOST",
-        boostPercent: 25,
-        maxStake: 50,
-        minDecimalOdds: 2.0,
-        maxDecimalOdds: 10.0,
-        stakeReturned: false,
-        active: true,
-        expiresAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
-        notes: "Boosted odds on any 3+ leg same-game parlay.",
-      },
-    ],
-  });
-
-  // ---- 8) Sample placed bet (settled, for Bet Tracker demo) -----------
+  // ---- 7) Sample placed bet (settled, for Bet Tracker demo) -----------
   const user = await prisma.user.findUniqueOrThrow({ where: { email: "conradflick11@gmail.com" } });
   const dkOverSnapshot = await prisma.oddsSnapshot.findFirst({
     where: { outcomeId: overLebron255Target.outcomeId, sportsbookId: sbId("draftkings") },

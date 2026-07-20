@@ -60,7 +60,7 @@ const opportunityInclude = {
 export async function getDashboardData() {
   const now = new Date();
 
-  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, activePromotions, recentMarkets] =
+  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets] =
     await Promise.all([
       prisma.bettingOpportunity.findMany({
         where: { expectedValuePercent: { gt: 0 }, oddsSnapshot: { isCurrent: true } },
@@ -95,12 +95,6 @@ export async function getDashboardData() {
           legs: { include: { oddsSnapshot: { include: { sportsbook: true } } } },
         },
       }),
-      prisma.promotion.findMany({
-        where: { active: true, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-        orderBy: { expiresAt: "asc" },
-        take: TOP_N,
-        include: { sportsbook: true },
-      }),
       prisma.market.findMany({
         orderBy: { updatedAt: "desc" },
         take: TOP_N,
@@ -133,14 +127,6 @@ export async function getDashboardData() {
         decimalOdds: Number(leg.oddsSnapshot.decimalOdds),
         stakePercentage: Number(leg.stakePercentage),
       })),
-    })),
-    activePromotions: activePromotions.map((p) => ({
-      id: p.id,
-      name: p.name,
-      sportsbook: p.sportsbook.name,
-      promotionType: p.promotionType,
-      boostPercent: p.boostPercent !== null ? Number(p.boostPercent) : null,
-      expiresAt: p.expiresAt?.toISOString() ?? null,
     })),
     recentlyUpdatedMarkets: recentMarkets.map((m) => ({
       id: m.id,
