@@ -7,7 +7,6 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/odds", label: "Odds Comparison" },
   { href: "/arbitrage", label: "Arbitrage" },
-  { href: "/promotions", label: "Promotions" },
   { href: "/bets", label: "Bet Tracker" },
   { href: "/settings", label: "Settings" },
 ];

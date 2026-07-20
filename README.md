@@ -5,8 +5,8 @@ external odds API across ~10 US sportsbooks, normalizes equivalent markets
 (so "LeBron James over 25.5 points" is only ever compared against the exact
 same line, never a different one), finds the best price for every outcome,
 estimates fair (de-vigged) probability and expected value, flags meaningful
-price outliers, scans for arbitrage, and lets you track manually-entered
-sportsbook promotions and your own placed bets.
+price outliers, scans for arbitrage, and lets you track your own placed
+bets across sportsbooks (including closing line value once a bet settles).
 
 It is a simplified, personal alternative to tools like OddsJam — not a
 production SaaS. See [Known limitations](#known-limitations) for what's
@@ -58,9 +58,9 @@ any HTTP request — something Vercel's serverless functions (bounded
 execution time, no persistent process) are a poor fit for. So:
 
 - **Vercel** hosts the Next.js app: the UI and every `/api/*` route (reads
-  for the dashboard/odds/arbitrage/event pages, writes for
-  promotions/bets/settings). This is the "backend using Next.js
-  server-side routes" called out as an acceptable option in the brief.
+  for the dashboard/odds/arbitrage/event pages, writes for bets/settings).
+  This is the "backend using Next.js server-side routes" called out as an
+  acceptable option in the brief.
 - **Render** hosts PostgreSQL (the system of record) and a **background
   worker** (`worker/poll.ts`) that does the actual data collection and
   computation: fetch odds → normalize → snapshot → best price → consensus
@@ -147,7 +147,7 @@ npm run db:seed                 # sports/leagues/sportsbooks/market types,
                                  # NBA + EPL teams/players, sample events and
                                  # odds (moneyline/spread/total/player props
                                  # with mismatched lines/futures/2-way and
-                                 # 3-way arbitrage), sample promotions and bets
+                                 # 3-way arbitrage), and a sample placed bet
 
 npm run worker:once             # fetch + normalize + compute once (uses the
                                  # mock provider automatically if ODDS_API_KEY
@@ -190,13 +190,13 @@ npm test          # unit + integration + DB + frontend component tests, once
 npm run test:watch
 ```
 
-141 tests across:
+130 tests across:
 
 - **Unit** (`tests/unit/`): odds conversion, implied probability, no-vig
   (two-way and n-way), expected value, consensus (median + weighted),
-  outlier scoring, best price, arbitrage (two-way and three-way), promotion
-  EV math, text/period/market-type normalization, formatting helpers, the
-  Redis cache-aside helper.
+  outlier scoring, best price, arbitrage (two-way and three-way),
+  text/period/market-type normalization, formatting helpers, the Redis
+  cache-aside helper.
 - **Integration** (`tests/integration/`): `TheOddsApiProvider` against
   mocked HTTP responses (fixtures in `tests/fixtures/`) — parsing, rate
   limit header capture, retry-on-5xx, no-retry-on-401, graceful handling of
@@ -281,15 +281,12 @@ server-side).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/dashboard` | Top +EV, best-line, largest outliers, active arbitrage, active promotions, recently updated markets (cached 20s in Redis if configured) |
+| GET | `/api/dashboard` | Top +EV, best-line, largest outliers, active arbitrage, recently updated markets (cached 20s in Redis if configured) |
 | GET | `/api/odds` | Filterable odds comparison. Query: `sport`, `league`, `event`, `marketType`, `sportsbook`, `minOdds`, `minEv`, `live`, `player`, `startTimeFrom`, `startTimeTo`, `limit` |
 | GET | `/api/events` | List events. Query: `sport`, `league`, `limit` |
 | GET | `/api/events/:id` | Full event detail — every current price per market/line, best-price flag, consensus, fair probability |
 | GET | `/api/outcomes/:id/history` | Odds history for one outcome (for the line-movement chart) |
 | GET | `/api/arbitrage` | Active (non-expired) arbitrage opportunities with suggested stake allocation. Query: `stake` |
-| GET / POST | `/api/promotions` | List / create promotions |
-| PATCH / DELETE | `/api/promotions/:id` | Update (e.g. activate/deactivate) / delete a promotion |
-| GET | `/api/promotions/:id/opportunities` | Best current qualifying bets for a promotion, ranked by expected profit. Query: `stake` |
 | GET / POST | `/api/bets` | List / log a placed bet |
 | PATCH | `/api/bets/:id` | Settle a bet (status, actual profit); `computeClosingLine: true` derives closing line value from the consensus price nearest event start |
 | GET / PUT | `/api/settings` | Read / update app settings (refresh frequency, min EV threshold, max quote age, bankroll, default stake, consensus method). Reports `oddsApiKeyConfigured` as a boolean only — the key itself is never returned |
@@ -310,7 +307,6 @@ src/
   lib/
     odds/               odds conversion, no-vig, EV, consensus, outliers,
                          best price, arbitrage — pure functions, unit tested
-    promotions/          promotion EV calculator
     providers/            OddsProvider interface + The Odds API + mock + registry
     normalization/         text/period/market-type normalization + MarketMatcher
     worker/                 snapshot writer, opportunity calculator, arbitrage
@@ -359,9 +355,12 @@ instruction not to claim more than what's implemented and tested:
 - **Live/in-play odds aren't specially handled** beyond the `live` filter
   on `/api/odds`, which just checks `event.status`. There's no live-odds
   polling cadence separate from pregame, and no live-specific UI.
-- **Promotion bonus-bet conversion rate is a constant** (70%, see
-  `DEFAULT_BONUS_BET_CONVERSION_RATE` in `src/lib/promotions/calculator.ts`)
-  rather than per-sportsbook configurable data.
+- **No promotion tracking.** An earlier version of this app tracked
+  manually-entered sportsbook promotions (bonus bets, odds boosts, etc.)
+  and ranked qualifying bets against them. That feature was removed to
+  keep scope focused on odds comparison and bet tracking; the underlying
+  `promotions`/`promotion_opportunities` tables and `placed_bets.promotion_id`
+  still exist in the schema (harmless, unused) if it's worth reviving later.
 - **The Odds API integration has not been exercised against live traffic**
   in this environment (no API key available here). It's fully implemented
   and unit/integration tested against realistic mocked responses matching
@@ -386,7 +385,7 @@ providers only after the core system works"):
    probability for `estimationMethod: "CUSTOM_MODEL"`, surfaced next to
    the existing methods on the Event Details page.
 5. **Historical analytics** — CLV trends over time, ROI by sport/market/
-   sportsbook, promotion value realized vs. estimated.
+   sportsbook.
 6. **Live/in-play odds** with a faster polling cadence and live-specific
    UI treatment.
 7. **More sports/markets** — the catalog and normalization layer are

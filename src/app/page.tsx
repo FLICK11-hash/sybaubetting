@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useFetch } from "@/lib/useFetch";
 import { Card, CardHeader, LoadingState, ErrorState, EmptyState, Badge, EvValue } from "@/components/ui";
-import { formatAmericanOdds, formatDateTime, formatPercent, formatRelativeTime } from "@/lib/format";
+import { formatAmericanOdds, formatPercent, formatRelativeTime } from "@/lib/format";
 
 interface OpportunityRow {
   bettingOpportunityId: number;
@@ -31,15 +31,6 @@ interface ArbitrageRow {
   legs: { sportsbook: string; americanOdds: number; decimalOdds: number; stakePercentage: number }[];
 }
 
-interface PromotionRow {
-  id: number;
-  name: string;
-  sportsbook: string;
-  promotionType: string;
-  boostPercent: number | null;
-  expiresAt: string | null;
-}
-
 interface MarketRow {
   id: number;
   title: string;
@@ -53,7 +44,6 @@ interface DashboardData {
   bestLineOpportunities: OpportunityRow[];
   largestOutliers: OpportunityRow[];
   activeArbitrage: ArbitrageRow[];
-  activePromotions: PromotionRow[];
   recentlyUpdatedMarkets: MarketRow[];
 }
 
@@ -153,30 +143,6 @@ export default function DashboardPage() {
                   </div>
                   <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                     {arb.legs.map((leg) => `${leg.sportsbook} ${formatAmericanOdds(leg.americanOdds)}`).join(" · ")}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        <Card>
-          <CardHeader title="Active Promotions" action={<Link href="/promotions" className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">Manage</Link>} />
-          {data.activePromotions.length === 0 ? (
-            <EmptyState message="No active promotions configured." />
-          ) : (
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {data.activePromotions.map((promo) => (
-                <li key={promo.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                  <div>
-                    <div className="font-medium">{promo.name}</div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {promo.sportsbook} · {promo.promotionType.replace(/_/g, " ")}
-                    </div>
-                  </div>
-                  <div className="text-right text-xs text-zinc-500 dark:text-zinc-400">
-                    {promo.boostPercent ? `${promo.boostPercent}% boost` : null}
-                    {promo.expiresAt ? <div>Expires {formatDateTime(promo.expiresAt)}</div> : null}
                   </div>
                 </li>
               ))}

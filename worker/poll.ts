@@ -16,6 +16,15 @@ import type { ConsensusMethod } from "../src/lib/odds/consensus";
 const RUN_ONCE = process.argv.includes("--once");
 const DEFAULT_REFRESH_SECONDS = 120;
 
+/**
+ * Player props and futures each cost extra provider requests per cycle (one
+ * call per event for props, one per league for futures). Real odds API
+ * plans have a limited monthly quota, so both can be disabled via env vars
+ * when the priority is game odds + bet tracking rather than full coverage.
+ */
+const INCLUDE_PLAYER_PROPS = process.env.INCLUDE_PLAYER_PROPS !== "false";
+const INCLUDE_FUTURES = process.env.INCLUDE_FUTURES !== "false";
+
 let shuttingDown = false;
 process.on("SIGTERM", () => {
   shuttingDown = true;
@@ -41,7 +50,11 @@ async function runOnce(): Promise<void> {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   const consensusMethod = (settings?.consensusMethod as ConsensusMethod) ?? "median";
 
-  const result = await runWorkerCycle(prisma, provider, apiProviderId, { consensusMethod });
+  const result = await runWorkerCycle(prisma, provider, apiProviderId, {
+    consensusMethod,
+    includePlayerProps: INCLUDE_PLAYER_PROPS,
+    includeFutures: INCLUDE_FUTURES,
+  });
 
   console.log(
     JSON.stringify({
