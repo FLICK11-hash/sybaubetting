@@ -1,0 +1,53 @@
+# Render Blueprint for sybaubetting's backend infrastructure.
+#
+# The Next.js app itself (frontend + API routes) deploys to Vercel, not
+# Render — see README.md "Deployment" for why. Render hosts only the two
+# things Vercel's serverless functions aren't a good fit for: the Postgres
+# database and the long-running/scheduled polling worker.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
+# After the first deploy, run migrations + seed once (see README.md).
+
+databases:
+  - name: sybaubetting-db
+    databaseName: sybaubetting
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  # Optional. Remove this block (and the worker's REDIS_URL env var) if you
+  # don't want it — the app runs fine without Redis, just without the
+  # dashboard response cache.
+  - type: redis
+    name: sybaubetting-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+  # Continuous background worker: polls the odds provider on a loop, sleeping
+  # settings.refresh_frequency_seconds between cycles (see worker/poll.ts).
+  # Swap this for a Render Cron Job running `npm run worker:once` on a
+  # schedule if you'd rather not keep a process running 24/7 — both are
+  # documented in README.md.
+  - type: worker
+    name: sybaubetting-worker
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm run worker
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sybaubetting-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: sybaubetting-redis
+          property: connectionString
+      - key: ODDS_API_KEY
+        sync: false # set manually in the Render dashboard -- never commit real keys
+      - key: ODDS_API_PROVIDER
+        value: the-odds-api
+      - key: NODE_ENV
+        value: production
