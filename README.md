@@ -341,12 +341,20 @@ instruction not to claim more than what's implemented and tested:
   from Vercel serverless functions against a plain Postgres connection can
   exhaust the database's connection limit under real concurrent traffic.
   Fine for one user; not fine at scale. See below.
-- **Team resolution is curated, not fuzzy-matched.** An unrecognized team
-  name causes that event to be skipped and logged, not guessed at (see
-  `SCHEMA_CHANGES.md`). Player resolution is more lenient (auto-created on
-  first sighting) since rosters are far larger than team lists.
-  Sportsbooks are also curated — an odds-provider bookmaker key with no
-  matching `provider_sportbooks` mapping is skipped, not auto-created.
+- **Team and player names are matched by exact/normalized-string match
+  only, not fuzzy/edit-distance matching.** Both are auto-created on first
+  sighting when no seeded or previously-mapped team/player matches (see
+  `SCHEMA_CHANGES.md`) — this is deliberate, since real rosters/leagues
+  change constantly (promotion/relegation, expansion teams, rebrands) and
+  a strict "reject anything unseeded" policy broke real-provider ingestion
+  in practice. A genuinely misspelled or wildly different name from the
+  provider would still create a distinct duplicate team rather than
+  matching an existing one — normalized-string matching only catches
+  case/accent/abbreviation differences, not typos.
+  Sportsbooks are still curated — an odds-provider bookmaker key with no
+  matching `provider_sportbooks` mapping is skipped, not auto-created,
+  since which sportsbooks to track is a deliberate user choice (Settings
+  page), not something to infer from the feed.
 - **Only ~10 sportsbooks and 5 sports/leagues are seeded** (NBA, NFL, MLB,
   NHL, EPL), matching the brief's MVP scope. Adding another league is a
   data change (`src/lib/seedData/`), not a code change; adding another
