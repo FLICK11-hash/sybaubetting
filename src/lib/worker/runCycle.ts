@@ -99,6 +99,16 @@ export async function runWorkerCycle(
 
   const staleArbitrageExpired = await expireStaleArbitrageOpportunities(prisma);
 
+  // upsert, not update -- the Settings singleton may not exist yet in every
+  // environment (e.g. a fresh DB before `npm run db:seed`, or a test fixture
+  // that doesn't seed it), and a missing row here shouldn't fail an
+  // otherwise-successful cycle.
+  await prisma.settings.upsert({
+    where: { id: 1 },
+    update: { lastWorkerRunAt: new Date() },
+    create: { id: 1, lastWorkerRunAt: new Date() },
+  });
+
   return {
     provider: provider.slug,
     leaguesProcessed,

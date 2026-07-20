@@ -177,6 +177,19 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000). You should see the
 Dashboard populated with whatever data Step 6 pulled in.
 
+**Reloading the page does not fetch new odds by itself** — it only
+re-reads whatever the worker last wrote to the database. To keep data
+fresh going forward, pick one:
+
+- Click **"Refresh odds now"** on the Dashboard whenever you want the
+  latest odds — it runs one worker cycle on demand and updates the "Last
+  checked" timestamp next to the button, even if nothing actually changed
+  price-wise. Each click uses real provider request quota if you've set an
+  `ODDS_API_KEY`.
+- Or leave `npm run worker` (no `--once`) running continuously in a second
+  terminal — it polls automatically every couple of minutes on its own, so
+  you don't have to remember to refresh manually.
+
 ## 8. If you're going to share this with anyone else
 
 By default there's no login of any kind — anyone who can reach the app
@@ -201,6 +214,7 @@ person.
 | `Environment variable not found: DATABASE_URL` | `.env` wasn't saved, is in the wrong folder, or has a typo on the `DATABASE_URL=` line. Re-open it and check. |
 | Worker output has entries in `errors` about a database/team/player | Usually informational, not fatal — check the message text; most are logged and skipped rather than stopping the whole run. |
 | Dashboard shows odds/games you don't recognize | If you're on a fresh clone this shouldn't happen (seed data has no fake games) — if you see this, something is off; open an issue or ask for help rather than assuming it's expected. |
+| Best bets / EV opportunities never seem to change | The page only shows what the worker last computed — click "Refresh odds now" on the Dashboard, or run `npm run worker` (no `--once`) in the background so it keeps polling on its own. |
 | Port 3000 already in use | Another process is using it. Stop it, or run `npm run dev -- -p 3001` and use that port instead. |
 
 If none of these match what you're seeing, paste the exact terminal output

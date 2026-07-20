@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useFetch } from "@/lib/useFetch";
-import { Card, CardHeader, LoadingState, ErrorState, EmptyState, Badge, EvValue } from "@/components/ui";
+import { Card, CardHeader, LoadingState, ErrorState, EmptyState, Badge, EvValue, Button } from "@/components/ui";
 import { formatAmericanOdds, formatPercent, formatRelativeTime } from "@/lib/format";
 
 interface OpportunityRow {
@@ -40,6 +41,7 @@ interface MarketRow {
 }
 
 interface DashboardData {
+  lastWorkerRunAt: string | null;
   topExpectedValueOpportunities: OpportunityRow[];
   bestLineOpportunities: OpportunityRow[];
   largestOutliers: OpportunityRow[];
@@ -98,7 +100,29 @@ function OpportunityList({
 }
 
 export default function DashboardPage() {
-  const { data, loading, error } = useFetch<DashboardData>("/api/dashboard");
+  const { data, loading, error, refetch } = useFetch<DashboardData>("/api/dashboard");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  async function refreshOdds() {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const res = await fetch("/api/worker/run", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? `Refresh failed with status ${res.status}`);
+      }
+      if (body.errors?.length > 0) {
+        setRefreshError(body.errors[0]);
+      }
+      refetch();
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (loading) return <LoadingState label="Loading dashboard…" />;
   if (error) return <ErrorState message={error} />;
@@ -106,11 +130,20 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Dashboard</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Live snapshot of the best opportunities across every tracked sportsbook.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Dashboard</h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            Live snapshot of the best opportunities across every tracked sportsbook.
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <Button onClick={refreshOdds} disabled={refreshing} variant="secondary">
+            {refreshing ? "Refreshing…" : "Refresh odds now"}
+          </Button>
+          <div className="mt-1 text-xs text-zinc-400">Last checked {formatRelativeTime(data.lastWorkerRunAt)}</div>
+          {refreshError && <div className="mt-1 max-w-xs text-xs text-rose-600 dark:text-rose-400">{refreshError}</div>}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

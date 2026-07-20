@@ -9,21 +9,10 @@
  */
 import "dotenv/config";
 import { prisma } from "../src/lib/db/prisma";
-import { createProvider } from "../src/lib/providers/registry";
-import { runWorkerCycle } from "../src/lib/worker/runCycle";
-import type { ConsensusMethod } from "../src/lib/odds/consensus";
+import { runOnDemandWorkerCycle } from "../src/lib/worker/runOnDemand";
 
 const RUN_ONCE = process.argv.includes("--once");
 const DEFAULT_REFRESH_SECONDS = 120;
-
-/**
- * Player props and futures each cost extra provider requests per cycle (one
- * call per event for props, one per league for futures). Real odds API
- * plans have a limited monthly quota, so both can be disabled via env vars
- * when the priority is game odds + bet tracking rather than full coverage.
- */
-const INCLUDE_PLAYER_PROPS = process.env.INCLUDE_PLAYER_PROPS !== "false";
-const INCLUDE_FUTURES = process.env.INCLUDE_FUTURES !== "false";
 
 let shuttingDown = false;
 process.on("SIGTERM", () => {
@@ -33,28 +22,8 @@ process.on("SIGINT", () => {
   shuttingDown = true;
 });
 
-async function getApiProviderId(providerSlug: string): Promise<number> {
-  const row = await prisma.apiProvider.findUnique({ where: { slug: providerSlug } });
-  if (!row) {
-    throw new Error(
-      `No api_providers row for slug "${providerSlug}". Run \`npm run db:seed\` first, or add this provider to the seed data.`
-    );
-  }
-  return row.id;
-}
-
 async function runOnce(): Promise<void> {
-  const provider = createProvider();
-  const apiProviderId = await getApiProviderId(provider.slug);
-
-  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
-  const consensusMethod = (settings?.consensusMethod as ConsensusMethod) ?? "median";
-
-  const result = await runWorkerCycle(prisma, provider, apiProviderId, {
-    consensusMethod,
-    includePlayerProps: INCLUDE_PLAYER_PROPS,
-    includeFutures: INCLUDE_FUTURES,
-  });
+  const result = await runOnDemandWorkerCycle(prisma);
 
   console.log(
     JSON.stringify({
