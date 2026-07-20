@@ -86,6 +86,14 @@ export class MockOddsProvider implements OddsProvider {
               { name: "Under", price: -115, point: 221.5 },
             ]),
           ]),
+          // Pinnacle (sharp reference) pays out noticeably more on the
+          // Lakers than the market otherwise supports -- combined with
+          // FanDuel's best Celtics price, this is a genuine, guaranteed
+          // arbitrage example (1/1.69 + 1/2.65 = 96.9% < 100%) so the
+          // Arbitrage page has something to show even without a real API key.
+          book("pinnacle", "Pinnacle", [
+            market("h2h", [{ name: "Los Angeles Lakers", price: 165 }]),
+          ]),
         ],
       },
     ];

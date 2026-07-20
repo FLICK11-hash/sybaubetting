@@ -126,7 +126,8 @@ described:
 A book offering 25.5 and a book offering 26.5 for the same player/market
 are two different `MarketLine`s under the same `Market` — they are never
 compared as if equivalent (see `tests/db/marketMatcher.test.ts` and the
-seed data, which deliberately includes this exact scenario).
+mock provider's player-prop fixture in `src/lib/providers/mock.ts`, both
+of which deliberately exercise this exact scenario).
 
 ## Local development
 
@@ -143,15 +144,17 @@ createdb sybaubetting_test      # for tests/db/*
 npx prisma migrate deploy       # apply migrations to $DATABASE_URL
 DATABASE_URL=$TEST_DATABASE_URL npx prisma migrate deploy   # and to the test DB
 
-npm run db:seed                 # sports/leagues/sportsbooks/market types,
-                                 # NBA + EPL teams/players, sample events and
-                                 # odds (moneyline/spread/total/player props
-                                 # with mismatched lines/futures/2-way and
-                                 # 3-way arbitrage), and a sample placed bet
+npm run db:seed                 # reference data only: providers, sportsbooks,
+                                 # sports/leagues, market types, a starter NBA +
+                                 # EPL roster, settings, and the single MVP user.
+                                 # No fabricated events/odds/bets -- real data
+                                 # only ever comes from the worker below.
 
 npm run worker:once             # fetch + normalize + compute once (uses the
                                  # mock provider automatically if ODDS_API_KEY
-                                 # is unset)
+                                 # is unset -- its small built-in NBA slate
+                                 # includes a guaranteed arbitrage example so
+                                 # the Arbitrage page has something to show)
 
 npm run dev                     # http://localhost:3000
 ```
