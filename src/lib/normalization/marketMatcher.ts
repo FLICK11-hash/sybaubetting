@@ -21,11 +21,16 @@ export interface ResolvedOutcomeTarget {
  * backend responsibility" described in the brief: equivalent markets across
  * providers/sportsbooks only ever resolve to a single internal Market.
  *
- * Team resolution is strict (curated roster data — an unresolvable team
- * means the event is skipped and logged, not guessed at). Player
- * resolution is lenient (rosters are large and change constantly — an
- * unseen player is created on first sighting, same as OddsJam-style tools
- * discover new players from the odds feed itself).
+ * Team and player resolution are both lenient: an unseen team or player is
+ * created on first sighting (same as OddsJam-style tools discover new
+ * entities from the odds feed itself), rather than requiring an exhaustive
+ * pre-seeded roster. Real leagues change constantly — promotion/relegation,
+ * expansion teams, mid-season rebrands (the NHL's Utah Mammoth, formerly
+ * the Arizona Coyotes, is a real example) — so hand-maintaining a complete,
+ * always-current roster per league is a losing battle. `seedData/` still
+ * ships small curated rosters for the sample dashboard data, but they are a
+ * starting point, not a gate: any team a real provider reports gets created
+ * automatically and its provider mapping cached for next time.
  */
 export class MarketMatcher {
   constructor(
@@ -60,24 +65,30 @@ export class MarketMatcher {
 
     const normalizedTarget = normalizeTeamName(externalTeamName);
     const candidates = await this.prisma.team.findMany({ where: { leagueId } });
-    const match = candidates.find((team) => {
-      const candidatesToCheck = [team.name, `${team.city ?? ""} ${team.name}`.trim(), team.abbreviation ?? ""];
+    let team = candidates.find((t) => {
+      const candidatesToCheck = [t.name, `${t.city ?? ""} ${t.name}`.trim(), t.abbreviation ?? ""];
       return candidatesToCheck.some((c) => c && normalizeTeamName(c) === normalizedTarget);
     });
 
-    if (!match) {
-      throw new NormalizationError(
-        `Could not resolve team "${externalTeamName}" in league ${leagueId} (no matching seeded team)`
-      );
+    if (!team) {
+      team = await this.prisma.team.create({
+        data: { leagueId, name: externalTeamName },
+      });
     }
 
     await this.prisma.providerTeam.create({
-      data: { apiProviderId: this.apiProviderId, teamId: match.id, externalTeamName },
+      data: { apiProviderId: this.apiProviderId, teamId: team.id, externalTeamName },
     });
-    return match.id;
+    return team.id;
   }
 
-  /** Best-effort team resolution that returns null instead of throwing (used for non-critical futures entrants). */
+  /**
+   * Best-effort team resolution that returns null instead of throwing.
+   * resolveTeam() no longer throws for an unseen team (it auto-creates),
+   * so this only guards against genuine unexpected errors (e.g. a
+   * transient DB failure) — kept for callers like futures entrant
+   * resolution that shouldn't abort the whole ingest over one bad row.
+   */
   async tryResolveTeam(leagueId: number, externalTeamName: string): Promise<number | null> {
     try {
       return await this.resolveTeam(leagueId, externalTeamName);

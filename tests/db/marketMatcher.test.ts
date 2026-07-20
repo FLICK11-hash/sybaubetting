@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { testPrisma, resetTestDb } from "./testDb";
 import { seedMinimalFixture } from "./fixtures";
-import { MarketMatcher, NormalizationError } from "@/lib/normalization/marketMatcher";
+import { MarketMatcher } from "@/lib/normalization/marketMatcher";
 
 describe("MarketMatcher - team resolution", () => {
   beforeEach(resetTestDb);
@@ -48,19 +48,40 @@ describe("MarketMatcher - team resolution", () => {
     expect(mappings).toHaveLength(1);
   });
 
-  it("throws NormalizationError for a team with no seeded match", async () => {
+  it("auto-creates a team on first sighting when there is no seeded match", async () => {
     const { provider, league } = await seedMinimalFixture(testPrisma);
     const matcher = new MarketMatcher(testPrisma, provider.id);
 
-    await expect(matcher.resolveTeam(league.id, "Miami Heat")).rejects.toThrow(NormalizationError);
+    const teamId = await matcher.resolveTeam(league.id, "Miami Heat");
+
+    const team = await testPrisma.team.findUniqueOrThrow({ where: { id: teamId } });
+    expect(team.name).toBe("Miami Heat");
+    expect(team.leagueId).toBe(league.id);
+
+    const mapping = await testPrisma.providerTeam.findFirst({
+      where: { apiProviderId: provider.id, teamId },
+    });
+    expect(mapping?.externalTeamName).toBe("Miami Heat");
   });
 
-  it("tryResolveTeam returns null instead of throwing for an unmatched team", async () => {
+  it("does not create a duplicate team when the same unseen name is resolved twice", async () => {
+    const { provider, league } = await seedMinimalFixture(testPrisma);
+    const matcher = new MarketMatcher(testPrisma, provider.id);
+
+    const first = await matcher.resolveTeam(league.id, "Miami Heat");
+    const second = await matcher.resolveTeam(league.id, "Miami Heat");
+
+    expect(second).toBe(first);
+    const teams = await testPrisma.team.findMany({ where: { leagueId: league.id, name: "Miami Heat" } });
+    expect(teams).toHaveLength(1);
+  });
+
+  it("tryResolveTeam succeeds (auto-create) for a name with no seeded match", async () => {
     const { provider, league } = await seedMinimalFixture(testPrisma);
     const matcher = new MarketMatcher(testPrisma, provider.id);
 
     const result = await matcher.tryResolveTeam(league.id, "Miami Heat");
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 });
 
@@ -461,7 +482,7 @@ describe("MarketMatcher - futures markets (no single game event)", () => {
     expect(markets).toHaveLength(1);
   });
 
-  it("keeps a futures entrant that doesn't match any seeded team, without failing the whole ingest", async () => {
+  it("auto-creates a futures entrant that doesn't match any seeded team, without failing the whole ingest", async () => {
     const { provider, league, futuresWinner } = await seedMinimalFixture(testPrisma);
     const matcher = new MarketMatcher(testPrisma, provider.id);
 
@@ -478,7 +499,7 @@ describe("MarketMatcher - futures markets (no single game event)", () => {
     });
 
     const outcome = await testPrisma.outcome.findUniqueOrThrow({ where: { id: targets[0].outcomeId } });
-    expect(outcome.teamId).toBeNull();
+    expect(outcome.teamId).not.toBeNull();
     expect(outcome.label).toBe("Miami Heat");
   });
 });
