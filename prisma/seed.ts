@@ -76,8 +76,13 @@ async function main() {
           where: {
             apiProviderId_externalLeagueKey: { apiProviderId: provider.id, externalLeagueKey: league.theOddsApiKey },
           },
-          update: {},
-          create: { apiProviderId: provider.id, leagueId: leagueRow.id, externalLeagueKey: league.theOddsApiKey },
+          update: { externalFuturesKey: league.theOddsApiFuturesKey },
+          create: {
+            apiProviderId: provider.id,
+            leagueId: leagueRow.id,
+            externalLeagueKey: league.theOddsApiKey,
+            externalFuturesKey: league.theOddsApiFuturesKey,
+          },
         });
       }
     }

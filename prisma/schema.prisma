@@ -121,10 +121,15 @@ model League {
 /// Maps an internal league to a provider's "sport key" (e.g. The Odds API's
 /// `basketball_nba`). Not present in the ERD — see SCHEMA_CHANGES.md.
 model ProviderLeague {
-  id                Int    @id @default(autoincrement())
-  apiProviderId     Int    @map("api_provider_id")
-  leagueId          Int    @map("league_id")
-  externalLeagueKey String @map("external_league_key")
+  id                Int     @id @default(autoincrement())
+  apiProviderId     Int     @map("api_provider_id")
+  leagueId          Int     @map("league_id")
+  externalLeagueKey String  @map("external_league_key")
+  /// The Odds API models futures under a distinct "sport key" per league
+  /// (e.g. "basketball_nba_championship_winner"), separate from the
+  /// game-odds key. Nullable because not every league has a modeled
+  /// futures market and not every provider needs this distinction.
+  externalFuturesKey String? @map("external_futures_key")
   active            Boolean @default(true)
 
   apiProvider ApiProvider @relation(fields: [apiProviderId], references: [id], onDelete: Cascade)
@@ -269,6 +274,14 @@ model MarketType {
   @@map("market_types")
 }
 
+/// Auditable record of provider key -> internal market type. Populated from
+/// MARKET_TYPE_CATALOG at seed time. One exception: "h2h" is shared by
+/// MONEYLINE and MONEYLINE_3WAY (soccer's 3-way moneyline uses the same
+/// provider key as every other sport's 2-way moneyline) — that ambiguity
+/// can only be resolved dynamically, from the outcome count on the actual
+/// quote, so the ingest pipeline resolves "h2h" via
+/// resolveMarketTypeCode()/isThreeWayMoneyline rather than this table. This
+/// table still holds the default ("h2h" -> MONEYLINE) for reference.
 model ProviderMarketType {
   id                 Int    @id @default(autoincrement())
   apiProviderId      Int    @map("api_provider_id")
