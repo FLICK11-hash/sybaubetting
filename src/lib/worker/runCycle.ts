@@ -35,6 +35,8 @@ export interface RunCycleOptions {
   includePlayerProps?: boolean;
   /** Skip futures ingestion (futures move slowly; doesn't need every cycle). */
   includeFutures?: boolean;
+  /** Settings.maxQuoteAgeSeconds -- excludes a book's snapshot from consensus/EV/arbitrage once it's this old without reconfirmation. */
+  maxQuoteAgeSeconds?: number;
 }
 
 function rateLimitLow(provider: OddsProvider): boolean {
@@ -99,11 +101,14 @@ export async function runWorkerCycle(
   }
 
   for (const outcomeId of stats.touchedOutcomeIds) {
-    await recalculateOutcomeOpportunities(prisma, outcomeId, { consensusMethod: options.consensusMethod });
+    await recalculateOutcomeOpportunities(prisma, outcomeId, {
+      consensusMethod: options.consensusMethod,
+      maxQuoteAgeSeconds: options.maxQuoteAgeSeconds,
+    });
   }
 
   for (const marketLineId of stats.touchedMarketLineIds) {
-    await recalculateMarketLineArbitrage(prisma, marketLineId);
+    await recalculateMarketLineArbitrage(prisma, marketLineId, { maxQuoteAgeSeconds: options.maxQuoteAgeSeconds });
   }
 
   const staleArbitrageExpired = await expireStaleArbitrageOpportunities(prisma);

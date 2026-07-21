@@ -1,5 +1,6 @@
 import { prisma } from "../db/prisma";
 import { pregameMarketFilter } from "./pregameFilter";
+import { staleCutoff, DEFAULT_MAX_QUOTE_AGE_SECONDS } from "../odds/freshness";
 
 const TOP_N = 10;
 
@@ -60,55 +61,63 @@ const opportunityInclude = {
 
 export async function getDashboardData() {
   const now = new Date();
+  const settings = await prisma.settings.findUnique({
+    where: { id: 1 },
+    select: { lastWorkerRunAt: true, maxQuoteAgeSeconds: true, minEvPercentThreshold: true },
+  });
+  const cutoff = staleCutoff(settings?.maxQuoteAgeSeconds ?? DEFAULT_MAX_QUOTE_AGE_SECONDS, now);
+  const minEvPercentThreshold = Number(settings?.minEvPercentThreshold ?? 2);
+  // A book's snapshot that hasn't been reconfirmed within the configured
+  // window shouldn't be recommended as a live opportunity alongside other
+  // books' fresher prices for the same outcome.
+  const freshCurrentSnapshot = { isCurrent: true, capturedAt: { gte: cutoff } };
 
-  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets, settings] =
-    await Promise.all([
-      prisma.bettingOpportunity.findMany({
-        where: {
-          expectedValuePercent: { gt: 0 },
-          oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } },
-        },
-        orderBy: { expectedValuePercent: "desc" },
-        take: TOP_N,
-        include: opportunityInclude,
-      }),
-      prisma.bettingOpportunity.findMany({
-        where: {
-          bestPriceInMarket: true,
-          oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } },
-        },
-        orderBy: { outlierScore: "desc" },
-        take: TOP_N,
-        include: opportunityInclude,
-      }),
-      prisma.bettingOpportunity.findMany({
-        where: { oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } } },
-        orderBy: { outlierScore: "desc" },
-        take: TOP_N,
-        include: opportunityInclude,
-      }),
-      prisma.bettingOpportunity.findMany({
-        where: { oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } } },
-        orderBy: { outlierScore: "asc" },
-        take: TOP_N,
-        include: opportunityInclude,
-      }),
-      prisma.arbitrageOpportunity.findMany({
-        where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter } },
-        orderBy: { profitPercent: "desc" },
-        take: TOP_N,
-        include: {
-          marketLine: { include: { market: { include: { event: true } } } },
-          legs: { include: { oddsSnapshot: { include: { sportsbook: true } } } },
-        },
-      }),
-      prisma.market.findMany({
-        orderBy: { updatedAt: "desc" },
-        take: TOP_N,
-        include: { event: true, marketType: true },
-      }),
-      prisma.settings.findUnique({ where: { id: 1 }, select: { lastWorkerRunAt: true } }),
-    ]);
+  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets] = await Promise.all([
+    prisma.bettingOpportunity.findMany({
+      where: {
+        expectedValuePercent: { gte: minEvPercentThreshold },
+        oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } },
+      },
+      orderBy: { expectedValuePercent: "desc" },
+      take: TOP_N,
+      include: opportunityInclude,
+    }),
+    prisma.bettingOpportunity.findMany({
+      where: {
+        bestPriceInMarket: true,
+        oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } },
+      },
+      orderBy: { outlierScore: "desc" },
+      take: TOP_N,
+      include: opportunityInclude,
+    }),
+    prisma.bettingOpportunity.findMany({
+      where: { oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } } },
+      orderBy: { outlierScore: "desc" },
+      take: TOP_N,
+      include: opportunityInclude,
+    }),
+    prisma.bettingOpportunity.findMany({
+      where: { oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } } },
+      orderBy: { outlierScore: "asc" },
+      take: TOP_N,
+      include: opportunityInclude,
+    }),
+    prisma.arbitrageOpportunity.findMany({
+      where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter } },
+      orderBy: { profitPercent: "desc" },
+      take: TOP_N,
+      include: {
+        marketLine: { include: { market: { include: { event: true } } } },
+        legs: { include: { oddsSnapshot: { include: { sportsbook: true } } } },
+      },
+    }),
+    prisma.market.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: TOP_N,
+      include: { event: true, marketType: true },
+    }),
+  ]);
 
   const largestOutliers = [...outliersDesc, ...outliersAsc]
     .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i)

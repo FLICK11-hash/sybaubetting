@@ -30,5 +30,6 @@ export async function runOnDemandWorkerCycle(prisma: PrismaClient): Promise<Work
     consensusMethod,
     includePlayerProps: INCLUDE_PLAYER_PROPS,
     includeFutures: INCLUDE_FUTURES,
+    maxQuoteAgeSeconds: settings?.maxQuoteAgeSeconds,
   });
 }

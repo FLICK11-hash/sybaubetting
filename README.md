@@ -186,6 +186,16 @@ transient HTTP failures (`src/lib/providers/httpClient.ts`); the worker
 also tracks the provider's rate-limit headers and stops starting new
 requests if the remaining quota drops low.
 
+A book's snapshot older than `settings.max_quote_age_seconds` (10 minutes by
+default, editable on the Settings page) is excluded from that outcome's
+best-price/consensus/no-vig/EV/arbitrage calculation for the cycle, and from
+the Dashboard's opportunity lists -- a book that stopped reconfirming its
+price (temporarily suspended the market, its own feed lagging, etc.) doesn't
+get compared against other books' fresh prices as if it were still live.
+`settings.min_ev_percent_threshold` (2% by default) is the cutoff for the
+Dashboard's "Top Positive EV Opportunities" list -- raise it to only be
+shown larger edges, or lower it to see smaller ones.
+
 The frontend never triggers a poll on its own -- reloading a page just
 re-reads whatever the worker last wrote to Postgres. Two ways to actually
 get fresh data:
