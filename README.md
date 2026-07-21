@@ -177,7 +177,11 @@ Each cycle: for every active league, fetch game odds (moneyline/spread/
 total, all periods) and futures, plus player props per event; normalize
 and snapshot; recompute best price/consensus/fair probability/EV for every
 touched outcome; scan touched market lines for arbitrage; expire arbitrage
-opportunities whose prices have since moved. Unchanged prices don't create
+opportunities whose prices have since moved. Games (and their player props)
+starting more than a week out aren't ingested at all -- those lines are
+thin and barely move, and just dilute the current week's real opportunities;
+futures markets (season-long, no single game date) aren't affected by this.
+Unchanged prices don't create
 a new snapshot row (checked by exact odds/availability match) unless the
 last snapshot for that outcome+book is more than 30 minutes old, in which
 case one is written anyway so line-movement charts have periodic sample
@@ -328,7 +332,7 @@ server-side).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/dashboard` | Top +EV, best-line, largest outliers, active arbitrage, recently updated markets (cached 20s in Redis if configured) |
+| GET | `/api/dashboard` | Top +EV opportunities, active arbitrage, recently updated markets (cached 20s in Redis if configured) |
 | GET | `/api/odds` | Filterable odds comparison. Query: `sport`, `league`, `event`, `marketType`, `sportsbook`, `minOdds`, `minEv`, `live`, `player`, `startTimeFrom`, `startTimeTo`, `limit` |
 | GET | `/api/events` | List events. Query: `sport`, `league`, `limit` |
 | GET | `/api/events/:id` | Full event detail — every current price per market/line, best-price flag, consensus, fair probability |

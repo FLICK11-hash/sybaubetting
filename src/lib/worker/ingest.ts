@@ -5,6 +5,7 @@ import { parsePeriodFromMarketKey } from "../normalization/periods";
 import { resolveMarketTypeCode } from "../normalization/marketTypeCatalog";
 import { GAME_MARKET_KEYS, playerPropMarketKeysForSport } from "./marketKeysBySport";
 import { writeOddsSnapshot } from "./snapshotWriter";
+import { TRACKING_WINDOW_MS } from "../odds/trackingWindow";
 
 export interface IngestStats {
   eventsProcessed: number;
@@ -147,7 +148,11 @@ export async function ingestLeagueGameOdds(
     // price in with pregame prices from other books produces nonsensical
     // "value" (e.g. a book still quoting a frozen pregame underdog price
     // next to another book's real-time blowout line for the same outcome).
-    if (new Date(providerEvent.commenceTime).getTime() <= Date.now()) continue;
+    const commenceTimeMs = new Date(providerEvent.commenceTime).getTime();
+    if (commenceTimeMs <= Date.now()) continue;
+    // Skip games more than a week out -- lines that far ahead are thin and
+    // barely move, and just dilute this week's actual opportunities.
+    if (commenceTimeMs > Date.now() + TRACKING_WINDOW_MS) continue;
 
     try {
       const { eventId, homeTeamId, awayTeamId } = await matcher.resolveEvent(league.leagueId, providerEvent);
@@ -200,7 +205,14 @@ export async function ingestLeaguePlayerProps(
   if (propMarkets.length === 0) return stats;
 
   const providerEvents = await prisma.providerEvent.findMany({
-    where: { apiProviderId, event: { leagueId: league.leagueId, status: "SCHEDULED" } },
+    where: {
+      apiProviderId,
+      event: {
+        leagueId: league.leagueId,
+        status: "SCHEDULED",
+        startTime: { lte: new Date(Date.now() + TRACKING_WINDOW_MS) },
+      },
+    },
     include: { event: { include: { homeTeam: true, awayTeam: true } } },
   });
 

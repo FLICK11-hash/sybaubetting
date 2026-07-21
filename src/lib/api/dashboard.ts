@@ -72,39 +72,18 @@ export async function getDashboardData() {
   // books' fresher prices for the same outcome.
   const freshCurrentSnapshot = { isCurrent: true, capturedAt: { gte: cutoff } };
 
-  const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets] = await Promise.all([
+  const [topEv, activeArbitrage, recentMarkets] = await Promise.all([
     prisma.bettingOpportunity.findMany({
       where: {
         expectedValuePercent: { gte: minEvPercentThreshold },
-        oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } },
+        oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter(now) } } },
       },
       orderBy: { expectedValuePercent: "desc" },
       take: TOP_N,
       include: opportunityInclude,
     }),
-    prisma.bettingOpportunity.findMany({
-      where: {
-        bestPriceInMarket: true,
-        oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } },
-      },
-      orderBy: { outlierScore: "desc" },
-      take: TOP_N,
-      include: opportunityInclude,
-    }),
-    prisma.bettingOpportunity.findMany({
-      where: { oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } } },
-      orderBy: { outlierScore: "desc" },
-      take: TOP_N,
-      include: opportunityInclude,
-    }),
-    prisma.bettingOpportunity.findMany({
-      where: { oddsSnapshot: { ...freshCurrentSnapshot, outcome: { marketLine: { market: pregameMarketFilter } } } },
-      orderBy: { outlierScore: "asc" },
-      take: TOP_N,
-      include: opportunityInclude,
-    }),
     prisma.arbitrageOpportunity.findMany({
-      where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter } },
+      where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter(now) } },
       orderBy: { profitPercent: "desc" },
       take: TOP_N,
       include: {
@@ -119,16 +98,9 @@ export async function getDashboardData() {
     }),
   ]);
 
-  const largestOutliers = [...outliersDesc, ...outliersAsc]
-    .filter((o, i, arr) => arr.findIndex((x) => x.id === o.id) === i)
-    .sort((a, b) => Math.abs(Number(b.outlierScore ?? 0)) - Math.abs(Number(a.outlierScore ?? 0)))
-    .slice(0, TOP_N);
-
   return {
     lastWorkerRunAt: settings?.lastWorkerRunAt?.toISOString() ?? null,
     topExpectedValueOpportunities: topEv.map(serializeOpportunity),
-    bestLineOpportunities: bestLines.map(serializeOpportunity),
-    largestOutliers: largestOutliers.map(serializeOpportunity),
     activeArbitrage: activeArbitrage.map((arb) => ({
       id: arb.id,
       market: arb.marketLine.market.title,

@@ -219,6 +219,23 @@ describe("runWorkerCycle (mock provider, real Postgres)", () => {
     expect(events).toHaveLength(0);
   });
 
+  it("does not ingest a game starting more than a week from now", async () => {
+    const { provider } = await seedForWorker();
+    const farFutureCommenceTime = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(); // 2 weeks out
+    const fakeProvider = new FixedEventsProvider([moneylineEvent("far-future-game", farFutureCommenceTime)]);
+
+    const result = await runWorkerCycle(testPrisma, fakeProvider, provider.id, {
+      includePlayerProps: false,
+      includeFutures: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.eventsProcessed).toBe(0);
+    expect(result.snapshotsWritten).toBe(0);
+    const events = await testPrisma.event.findMany();
+    expect(events).toHaveLength(0);
+  });
+
   it("marks an event LIVE once its start time passes, and stops writing new snapshots for it", async () => {
     const { provider } = await seedForWorker();
     const futureCommenceTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();

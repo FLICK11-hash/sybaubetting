@@ -13,7 +13,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const now = new Date();
 
   const opportunities = await prisma.arbitrageOpportunity.findMany({
-    where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter } },
+    where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter(now) } },
     orderBy: { profitPercent: "desc" },
     include: {
       marketLine: { include: { market: { include: { event: true, marketType: true } } } },
