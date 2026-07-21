@@ -5,9 +5,12 @@ import { consensusImpliedProbability, consensusDecimalOdds, ConsensusMethod } fr
 import { noVigProbabilityTwoWay } from "../odds/noVig";
 import { expectedValue, edge } from "../odds/expectedValue";
 import { decimalToImpliedProbability, roundProbability } from "../odds/conversion";
+import { staleCutoff, DEFAULT_MAX_QUOTE_AGE_SECONDS } from "../odds/freshness";
 
 export interface RecalculateOptions {
   consensusMethod?: ConsensusMethod;
+  /** Snapshots older than this are excluded, not just ones marked stale by a price change. Defaults to Settings.maxQuoteAgeSeconds' schema default. */
+  maxQuoteAgeSeconds?: number;
 }
 
 /**
@@ -26,7 +29,9 @@ export async function recalculateOutcomeOpportunities(
   options: RecalculateOptions = {}
 ): Promise<void> {
   const consensusMethod = options.consensusMethod ?? "median";
+  const maxQuoteAgeSeconds = options.maxQuoteAgeSeconds ?? DEFAULT_MAX_QUOTE_AGE_SECONDS;
   const now = new Date();
+  const cutoff = staleCutoff(maxQuoteAgeSeconds, now);
 
   const outcome = await prisma.outcome.findUnique({
     where: { id: outcomeId },
@@ -35,7 +40,7 @@ export async function recalculateOutcomeOpportunities(
   if (!outcome) return;
 
   const currentSnapshots = await prisma.oddsSnapshot.findMany({
-    where: { outcomeId, isCurrent: true },
+    where: { outcomeId, isCurrent: true, capturedAt: { gte: cutoff } },
     include: { sportsbook: true },
   });
   if (currentSnapshots.length === 0) return;
@@ -61,7 +66,9 @@ export async function recalculateOutcomeOpportunities(
     if (siblings.length === 2) {
       const otherOutcomeId = siblings.find((o) => o.id !== outcomeId)?.id;
       const otherSnapshots = otherOutcomeId
-        ? await prisma.oddsSnapshot.findMany({ where: { outcomeId: otherOutcomeId, isCurrent: true } })
+        ? await prisma.oddsSnapshot.findMany({
+            where: { outcomeId: otherOutcomeId, isCurrent: true, capturedAt: { gte: cutoff } },
+          })
         : [];
       if (otherSnapshots.length > 0) {
         const thisConsensusDecimal = consensusDecimalOdds(bookPrices, consensusMethod);

@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { findBestPrice } from "../odds/bestPrice";
 import { detectArbitrage } from "../odds/arbitrage";
+import { staleCutoff, DEFAULT_MAX_QUOTE_AGE_SECONDS } from "../odds/freshness";
 
 /** Arbitrage windows close fast (any book can move a line at any time) — keep the window short. */
 export const ARBITRAGE_OPPORTUNITY_TTL_MS = 5 * 60 * 1000;
@@ -14,9 +15,11 @@ export const ARBITRAGE_OPPORTUNITY_TTL_MS = 5 * 60 * 1000;
  */
 export async function recalculateMarketLineArbitrage(
   prisma: PrismaClient,
-  marketLineId: number
+  marketLineId: number,
+  options: { maxQuoteAgeSeconds?: number } = {}
 ): Promise<void> {
   const now = new Date();
+  const cutoff = staleCutoff(options.maxQuoteAgeSeconds ?? DEFAULT_MAX_QUOTE_AGE_SECONDS, now);
   const marketLine = await prisma.marketLine.findUnique({
     where: { id: marketLineId },
     include: { market: { include: { marketType: true } }, outcomes: true },
@@ -27,7 +30,9 @@ export async function recalculateMarketLineArbitrage(
 
   const legs: { outcomeKey: string; sportsbookId: number; decimalOdds: number }[] = [];
   for (const outcome of marketLine.outcomes) {
-    const snapshots = await prisma.oddsSnapshot.findMany({ where: { outcomeId: outcome.id, isCurrent: true } });
+    const snapshots = await prisma.oddsSnapshot.findMany({
+      where: { outcomeId: outcome.id, isCurrent: true, capturedAt: { gte: cutoff } },
+    });
     if (snapshots.length === 0) {
       // Can't evaluate arbitrage without a live price on every leg.
       await expireActiveOpportunity(prisma, marketLineId, now);
