@@ -202,6 +202,17 @@ get fresh data:
   to write. Each click spends real provider request quota, so avoid mashing
   it if you're on a metered plan.
 
+If odds ever look internally inconsistent for one matchup (e.g. one
+sportsbook's price implies a completely different game than another's for
+the same event -- this happened for a same-day doubleheader before the event
+dedup window was tightened, see git history), run `npm run reset:odds`. It
+deletes every event and everything under it (markets, lines, outcomes,
+snapshots, opportunities, arbitrage) -- all re-fetchable from the provider --
+while leaving sportsbooks, teams, settings, and placed bets alone. It refuses
+to run (and tells you why) if any placed bet still references an outcome it
+would delete. Follow it with `npm run worker:once` or "Refresh odds now" to
+rebuild.
+
 ## Testing
 
 ```bash
