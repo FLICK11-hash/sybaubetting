@@ -15,7 +15,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "worker": "tsx worker/poll.ts",
-    "worker:once": "tsx worker/poll.ts --once"
+    "worker:once": "tsx worker/poll.ts --once",
+    "reset:odds": "tsx scripts/resetOddsData.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
