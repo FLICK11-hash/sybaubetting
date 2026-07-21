@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useFetch } from "@/lib/useFetch";
 import { Card, CardHeader, LoadingState, ErrorState, EmptyState, Badge, EvValue, Button } from "@/components/ui";
-import { formatAmericanOdds, formatPercent, formatRelativeTime } from "@/lib/format";
+import { formatAmericanOdds, formatDateTime, formatPercent, formatRelativeTime } from "@/lib/format";
 
 interface OpportunityRow {
   bettingOpportunityId: number;
@@ -43,32 +43,11 @@ interface MarketRow {
 interface DashboardData {
   lastWorkerRunAt: string | null;
   topExpectedValueOpportunities: OpportunityRow[];
-  bestLineOpportunities: OpportunityRow[];
-  largestOutliers: OpportunityRow[];
   activeArbitrage: ArbitrageRow[];
   recentlyUpdatedMarkets: MarketRow[];
 }
 
-function OutlierValue({ value }: { value: number | null | undefined }) {
-  if (value === null || value === undefined) return <span className="text-zinc-400">—</span>;
-  const tone = value > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
-  return (
-    <span className={`font-medium tabular-nums ${tone}`}>
-      {value > 0 ? "+" : ""}
-      {value.toFixed(2)} outlier
-    </span>
-  );
-}
-
-function OpportunityList({
-  rows,
-  emptyMessage,
-  metric = "ev",
-}: {
-  rows: OpportunityRow[];
-  emptyMessage: string;
-  metric?: "ev" | "outlier";
-}) {
+function OpportunityList({ rows, emptyMessage }: { rows: OpportunityRow[]; emptyMessage: string }) {
   if (rows.length === 0) return <EmptyState message={emptyMessage} />;
   return (
     <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -85,13 +64,14 @@ function OpportunityList({
               )}
             </div>
             <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+              {row.event ? `${formatDateTime(row.event.startTime)} · ` : ""}
               {row.market} · {row.outcome}
               {row.line !== null ? ` ${row.line}` : ""} · {row.sportsbook.name}
             </div>
           </div>
           <div className="shrink-0 text-right">
             <div className="tabular-nums font-medium">{formatAmericanOdds(row.americanOdds)}</div>
-            {metric === "outlier" ? <OutlierValue value={row.outlierScore} /> : <EvValue value={row.expectedValuePercent} />}
+            <EvValue value={row.expectedValuePercent} />
           </div>
         </li>
       ))}
@@ -147,19 +127,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader title="Top Positive EV Opportunities" />
           <OpportunityList rows={data.topExpectedValueOpportunities} emptyMessage="No positive EV opportunities right now." />
-        </Card>
-
-        <Card>
-          <CardHeader title="Best-Line Opportunities" />
-          <OpportunityList rows={data.bestLineOpportunities} emptyMessage="No best-line data yet." />
-        </Card>
-
-        <Card>
-          <CardHeader title="Largest Market Outliers" />
-          <OpportunityList rows={data.largestOutliers} emptyMessage="No outliers detected." metric="outlier" />
         </Card>
 
         <Card>
