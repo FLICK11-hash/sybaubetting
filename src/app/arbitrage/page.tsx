@@ -44,7 +44,10 @@ export default function ArbitragePage() {
             Guaranteed-profit opportunities across every outcome of a market. Stale quotes are excluded automatically.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-sm">
+        <label
+          className="flex shrink-0 items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400"
+          style={{ whiteSpace: "nowrap" }}
+        >
           Total stake
           <input
             className="filter-input w-32"

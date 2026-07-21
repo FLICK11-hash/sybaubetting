@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useFetch } from "@/lib/useFetch";
-import { Card, CardHeader, LoadingState, ErrorState, EmptyState, Badge, EvValue, Button } from "@/components/ui";
+import { Card, CardHeader, StatTile, LoadingState, ErrorState, EmptyState, Badge, EvValue, Button } from "@/components/ui";
 import { formatAmericanOdds, formatDateTime, formatPercent, formatRelativeTime } from "@/lib/format";
 
 interface OpportunityRow {
@@ -51,9 +51,15 @@ function OpportunityList({ rows, emptyMessage }: { rows: OpportunityRow[]; empty
   if (rows.length === 0) return <EmptyState message={emptyMessage} />;
   return (
     <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-      {rows.map((row) => (
-        <li key={row.bettingOpportunityId} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-          <div className="min-w-0">
+      {rows.map((row, i) => (
+        <li
+          key={row.bettingOpportunityId}
+          className="group flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+        >
+          <span className="hidden w-5 shrink-0 text-center text-xs font-semibold text-zinc-300 group-hover:text-zinc-400 sm:inline dark:text-zinc-700 dark:group-hover:text-zinc-600">
+            {i + 1}
+          </span>
+          <div className="min-w-0 flex-1">
             <div className="truncate font-medium text-zinc-900 dark:text-zinc-50">
               {row.event ? (
                 <Link href={`/events/${row.event.id}`} className="hover:underline">
@@ -63,14 +69,21 @@ function OpportunityList({ rows, emptyMessage }: { rows: OpportunityRow[]; empty
                 row.market
               )}
             </div>
-            <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-              {row.event ? `${formatDateTime(row.event.startTime)} · ` : ""}
-              {row.market} · {row.outcome}
-              {row.line !== null ? ` ${row.line}` : ""} · {row.sportsbook.name}
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
+              {row.event && <span>{formatDateTime(row.event.startTime)}</span>}
+              <span>
+                {row.market} · {row.outcome}
+                {row.line !== null ? ` ${row.line}` : ""}
+              </span>
+              <span className="inline-flex items-center rounded bg-zinc-100 px-1.5 py-0.5 text-[0.7rem] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                {row.sportsbook.name}
+              </span>
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="tabular-nums font-medium">{formatAmericanOdds(row.americanOdds)}</div>
+            <div className="tabular-nums font-semibold text-zinc-900 dark:text-zinc-50">
+              {formatAmericanOdds(row.americanOdds)}
+            </div>
             <EvValue value={row.expectedValuePercent} />
           </div>
         </li>
@@ -108,11 +121,13 @@ export default function DashboardPage() {
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
+  const bestEv = data.topExpectedValueOpportunities[0]?.expectedValuePercent ?? null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Dashboard</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">Dashboard</h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Live snapshot of the best opportunities across every tracked sportsbook.
           </p>
@@ -124,6 +139,27 @@ export default function DashboardPage() {
           <div className="mt-1 text-xs text-zinc-400">Last checked {formatRelativeTime(data.lastWorkerRunAt)}</div>
           {refreshError && <div className="mt-1 max-w-xs text-xs text-rose-600 dark:text-rose-400">{refreshError}</div>}
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatTile
+          label="Best edge"
+          value={bestEv !== null ? `${bestEv > 0 ? "+" : ""}${bestEv.toFixed(2)}%` : "—"}
+          tone={bestEv !== null && bestEv > 0 ? "positive" : "neutral"}
+          hint="Top of the list below"
+        />
+        <StatTile
+          label="Opportunities shown"
+          value={String(data.topExpectedValueOpportunities.length)}
+          tone="info"
+          hint="Meeting your EV threshold"
+        />
+        <StatTile
+          label="Active arbitrage"
+          value={String(data.activeArbitrage.length)}
+          tone={data.activeArbitrage.length > 0 ? "positive" : "neutral"}
+          hint="Guaranteed-profit windows"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -139,9 +175,14 @@ export default function DashboardPage() {
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {data.activeArbitrage.map((arb) => (
-                <li key={arb.id} className="px-4 py-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="truncate font-medium">{arb.event?.name ?? arb.market}</span>
+                <li
+                  key={arb.id}
+                  className="px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">
+                      {arb.event?.name ?? arb.market}
+                    </span>
                     <Badge tone="positive">+{formatPercent(arb.profitPercent * 100)}</Badge>
                   </div>
                   <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
@@ -160,9 +201,12 @@ export default function DashboardPage() {
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {data.recentlyUpdatedMarkets.map((m) => (
-                <li key={m.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                >
                   <div>
-                    <div className="font-medium">{m.event ? m.event.name : m.title}</div>
+                    <div className="font-medium text-zinc-900 dark:text-zinc-50">{m.event ? m.event.name : m.title}</div>
                     <div className="text-xs text-zinc-500 dark:text-zinc-400">{m.marketType}</div>
                   </div>
                   <span className="text-xs text-zinc-400">{formatRelativeTime(m.updatedAt)}</span>
