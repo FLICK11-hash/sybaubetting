@@ -5,7 +5,13 @@ import type { ProviderEventOdds, ProviderMarketQuote } from "../providers/types"
 
 export class NormalizationError extends Error {}
 
-const EVENT_START_TIME_TOLERANCE_MS = 3 * 60 * 60 * 1000;
+// Reconciles minor start-time drift between providers/polls reporting the
+// same real game (see the cross-provider test below, ~20 minutes apart).
+// Deliberately much shorter than the gap between two games of a same-day
+// doubleheader (MLB games are the common case, typically 3+ hours apart) --
+// a wider window would merge Game 1 and Game 2 between the same two teams
+// into a single Event, mixing two different games' odds into one market.
+const EVENT_START_TIME_TOLERANCE_MS = 60 * 60 * 1000;
 
 export interface ResolvedOutcomeTarget {
   marketId: number;

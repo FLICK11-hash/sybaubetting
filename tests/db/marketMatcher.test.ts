@@ -195,6 +195,31 @@ describe("MarketMatcher - event resolution", () => {
 
     expect(second.eventId).toBe(first.eventId);
   });
+
+  it("does not merge two separate games of a same-day doubleheader into one event", async () => {
+    const { provider, league } = await seedMinimalFixture(testPrisma);
+    const matcher = new MarketMatcher(testPrisma, provider.id);
+
+    const gameOne = await matcher.resolveEvent(league.id, {
+      id: "dh-game-1",
+      commenceTime: "2026-08-01T17:05:00Z",
+      homeTeam: "Celtics",
+      awayTeam: "Lakers",
+    });
+    // Game 2 of the same doubleheader, several hours later -- a genuinely
+    // different game between the same two teams, not a rescheduled version
+    // of game one.
+    const gameTwo = await matcher.resolveEvent(league.id, {
+      id: "dh-game-2",
+      commenceTime: "2026-08-01T20:35:00Z",
+      homeTeam: "Celtics",
+      awayTeam: "Lakers",
+    });
+
+    expect(gameTwo.eventId).not.toBe(gameOne.eventId);
+    const allEvents = await testPrisma.event.findMany({ where: { leagueId: league.id } });
+    expect(allEvents).toHaveLength(2);
+  });
 });
 
 describe("MarketMatcher - market/line/outcome duplicate prevention", () => {
