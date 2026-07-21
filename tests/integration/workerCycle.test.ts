@@ -4,6 +4,56 @@ import { MockOddsProvider } from "@/lib/providers/mock";
 import { runWorkerCycle } from "@/lib/worker/runCycle";
 import { MARKET_TYPE_CATALOG } from "@/lib/normalization/marketTypeCatalog";
 import { NBA_TEAMS } from "@/lib/seedData/nbaTeams";
+import type { OddsProvider, ProviderEventOdds, RateLimitInfo } from "@/lib/providers/types";
+
+/** Minimal stub provider returning a fixed, caller-supplied list of events -- lets tests control commenceTime precisely. */
+class FixedEventsProvider implements OddsProvider {
+  readonly slug = "fixed-events-provider";
+  readonly name = "Fixed Events Provider";
+  constructor(private events: ProviderEventOdds[]) {}
+  async listSports() {
+    return [];
+  }
+  async listEventOdds() {
+    return this.events;
+  }
+  async listPlayerPropOdds() {
+    return null;
+  }
+  async listFuturesOdds() {
+    return [];
+  }
+  getLastRateLimitInfo(): RateLimitInfo {
+    return { requestsRemaining: null, requestsUsed: null };
+  }
+}
+
+function moneylineEvent(id: string, commenceTime: string): ProviderEventOdds {
+  return {
+    id,
+    sportKey: "basketball_nba",
+    commenceTime,
+    homeTeam: "Celtics",
+    awayTeam: "Lakers",
+    bookmakers: [
+      {
+        key: "draftkings",
+        title: "DraftKings",
+        lastUpdate: new Date().toISOString(),
+        markets: [
+          {
+            key: "h2h",
+            lastUpdate: new Date().toISOString(),
+            outcomes: [
+              { name: "Celtics", price: -150 },
+              { name: "Lakers", price: 130 },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
 
 /** Minimal seed sufficient for the mock provider's NBA slate to ingest end-to-end. */
 async function seedForWorker() {
@@ -150,5 +200,51 @@ describe("runWorkerCycle (mock provider, real Postgres)", () => {
     });
     const lineValues = lines.map((l) => Number(l.lineValue)).sort((a, b) => a - b);
     expect(lineValues).toEqual([25.5, 26.5]);
+  });
+
+  it("does not ingest a game that has already started", async () => {
+    const { provider } = await seedForWorker();
+    const pastCommenceTime = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // started an hour ago
+    const fakeProvider = new FixedEventsProvider([moneylineEvent("live-game-1", pastCommenceTime)]);
+
+    const result = await runWorkerCycle(testPrisma, fakeProvider, provider.id, {
+      includePlayerProps: false,
+      includeFutures: false,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.eventsProcessed).toBe(0);
+    expect(result.snapshotsWritten).toBe(0);
+    const events = await testPrisma.event.findMany();
+    expect(events).toHaveLength(0);
+  });
+
+  it("marks an event LIVE once its start time passes, and stops writing new snapshots for it", async () => {
+    const { provider } = await seedForWorker();
+    const futureCommenceTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const fakeProvider = new FixedEventsProvider([moneylineEvent("game-2", futureCommenceTime)]);
+
+    await runWorkerCycle(testPrisma, fakeProvider, provider.id, {
+      includePlayerProps: false,
+      includeFutures: false,
+    });
+
+    const eventBefore = await testPrisma.event.findFirstOrThrow();
+    expect(eventBefore.status).toBe("SCHEDULED");
+    const snapshotsAfterFirst = await testPrisma.oddsSnapshot.count();
+
+    // Simulate the game having actually started by moving its start time
+    // into the past, then run another cycle reporting an unchanged price.
+    await testPrisma.event.update({ where: { id: eventBefore.id }, data: { startTime: new Date(Date.now() - 1000) } });
+
+    await runWorkerCycle(testPrisma, fakeProvider, provider.id, {
+      includePlayerProps: false,
+      includeFutures: false,
+    });
+
+    const eventAfter = await testPrisma.event.findUniqueOrThrow({ where: { id: eventBefore.id } });
+    expect(eventAfter.status).toBe("LIVE");
+    const snapshotsAfterSecond = await testPrisma.oddsSnapshot.count();
+    expect(snapshotsAfterSecond).toBe(snapshotsAfterFirst); // no new/updated snapshot written once live
   });
 });

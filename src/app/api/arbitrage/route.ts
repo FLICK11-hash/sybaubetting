@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withApiErrorHandling } from "@/lib/api/respond";
 import { prisma } from "@/lib/db/prisma";
+import { pregameMarketFilter } from "@/lib/api/pregameFilter";
 
 const querySchema = z.object({
   stake: z.coerce.number().positive().default(1000),
@@ -12,7 +13,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const now = new Date();
 
   const opportunities = await prisma.arbitrageOpportunity.findMany({
-    where: { expiresAt: { gt: now } },
+    where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter } },
     orderBy: { profitPercent: "desc" },
     include: {
       marketLine: { include: { market: { include: { event: true, marketType: true } } } },
