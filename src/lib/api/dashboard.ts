@@ -1,4 +1,5 @@
 import { prisma } from "../db/prisma";
+import { pregameMarketFilter } from "./pregameFilter";
 
 const TOP_N = 10;
 
@@ -63,31 +64,37 @@ export async function getDashboardData() {
   const [topEv, bestLines, outliersDesc, outliersAsc, activeArbitrage, recentMarkets, settings] =
     await Promise.all([
       prisma.bettingOpportunity.findMany({
-        where: { expectedValuePercent: { gt: 0 }, oddsSnapshot: { isCurrent: true } },
+        where: {
+          expectedValuePercent: { gt: 0 },
+          oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } },
+        },
         orderBy: { expectedValuePercent: "desc" },
         take: TOP_N,
         include: opportunityInclude,
       }),
       prisma.bettingOpportunity.findMany({
-        where: { bestPriceInMarket: true, oddsSnapshot: { isCurrent: true } },
+        where: {
+          bestPriceInMarket: true,
+          oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } },
+        },
         orderBy: { outlierScore: "desc" },
         take: TOP_N,
         include: opportunityInclude,
       }),
       prisma.bettingOpportunity.findMany({
-        where: { oddsSnapshot: { isCurrent: true } },
+        where: { oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } } },
         orderBy: { outlierScore: "desc" },
         take: TOP_N,
         include: opportunityInclude,
       }),
       prisma.bettingOpportunity.findMany({
-        where: { oddsSnapshot: { isCurrent: true } },
+        where: { oddsSnapshot: { isCurrent: true, outcome: { marketLine: { market: pregameMarketFilter } } } },
         orderBy: { outlierScore: "asc" },
         take: TOP_N,
         include: opportunityInclude,
       }),
       prisma.arbitrageOpportunity.findMany({
-        where: { expiresAt: { gt: now } },
+        where: { expiresAt: { gt: now }, marketLine: { market: pregameMarketFilter } },
         orderBy: { profitPercent: "desc" },
         take: TOP_N,
         include: {

@@ -142,6 +142,13 @@ export async function ingestLeagueGameOdds(
   }
 
   for (const providerEvent of events) {
+    // Skip games already underway -- a pregame no-vig/consensus estimate is
+    // meaningless once the score is in play, and mixing a live, fast-moving
+    // price in with pregame prices from other books produces nonsensical
+    // "value" (e.g. a book still quoting a frozen pregame underdog price
+    // next to another book's real-time blowout line for the same outcome).
+    if (new Date(providerEvent.commenceTime).getTime() <= Date.now()) continue;
+
     try {
       const { eventId, homeTeamId, awayTeamId } = await matcher.resolveEvent(league.leagueId, providerEvent);
       stats.eventsProcessed++;

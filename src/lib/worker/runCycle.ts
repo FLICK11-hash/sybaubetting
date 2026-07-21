@@ -65,6 +65,15 @@ export async function runWorkerCycle(
     touchedMarketLineIds: new Set(),
   };
 
+  // A pregame no-vig/consensus estimate stops meaning anything once a game
+  // is actually underway (true win probability now depends on the score,
+  // not the pregame line) -- flip anything whose start time has passed so
+  // ingestion stops updating it and the dashboard stops recommending it.
+  await prisma.event.updateMany({
+    where: { status: "SCHEDULED", startTime: { lte: new Date(startedAt) } },
+    data: { status: "LIVE" },
+  });
+
   const leagues = await getActiveLeaguesForProvider(prisma, apiProviderId);
   let leaguesProcessed = 0;
 
