@@ -14,6 +14,8 @@ async function createSnapshot(params: {
   apiProviderId: number;
   americanOdds: number;
   capturedAt: Date;
+  /** Defaults to capturedAt -- pass explicitly to simulate a price that changed a while ago but has since been reconfirmed unchanged (fresh receivedAt, old capturedAt). */
+  receivedAt?: Date;
 }) {
   const decimalOdds = roundDecimalOdds(americanToDecimal(params.americanOdds));
   const impliedProbability = roundProbability(decimalToImpliedProbability(decimalOdds));
@@ -26,6 +28,7 @@ async function createSnapshot(params: {
       decimalOdds,
       impliedProbability,
       capturedAt: params.capturedAt,
+      receivedAt: params.receivedAt ?? params.capturedAt,
       isCurrent: true,
     },
   });
@@ -153,5 +156,60 @@ describe("stale-quote exclusion (Settings.maxQuoteAgeSeconds)", () => {
 
     const opportunities = await testPrisma.arbitrageOpportunity.findMany({ where: { marketLineId } });
     expect(opportunities).toHaveLength(0);
+  });
+
+  it("does not exclude a price that simply hasn't moved in a while, as long as it's been recently reconfirmed", async () => {
+    const { provider, league, moneyline } = await seedMinimalFixture(testPrisma);
+    const matcher = new MarketMatcher(testPrisma, provider.id);
+    const { eventId, homeTeamId, awayTeamId } = await matcher.resolveEvent(league.id, {
+      id: "ext-3",
+      commenceTime: "2026-08-01T00:00:00Z",
+      homeTeam: "Celtics",
+      awayTeam: "Lakers",
+    });
+    const targets = await matcher.resolveGameMarketOutcomes({
+      eventId,
+      leagueId: league.id,
+      homeTeamId,
+      awayTeamId,
+      homeTeamName: "Celtics",
+      awayTeamName: "Lakers",
+      marketTypeId: moneyline.id,
+      marketTypeName: "Moneyline",
+      period: "full_game",
+      sportsbookId: 0,
+      quote: {
+        key: "h2h",
+        lastUpdate: new Date().toISOString(),
+        outcomes: [
+          { name: "Celtics", price: -150 },
+          { name: "Lakers", price: 130 },
+        ],
+      },
+    });
+    const celticsOutcomeId = targets[0].outcomeId;
+    const lakersOutcomeId = targets[1].outcomeId;
+
+    const bookA = await makeSportsbook("Book A");
+    const lakersBook = await makeSportsbook("Lakers Book");
+
+    // This book's price hasn't changed in 2 hours (very normal for a quiet
+    // market) but was just reconfirmed unchanged this cycle -- it must still
+    // count as a live, comparable price, not get excluded as "stale".
+    const quietButLive = await createSnapshot({
+      outcomeId: celticsOutcomeId,
+      sportsbookId: bookA.id,
+      apiProviderId: provider.id,
+      americanOdds: -150,
+      capturedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      receivedAt: new Date(),
+    });
+    await createSnapshot({ outcomeId: lakersOutcomeId, sportsbookId: lakersBook.id, apiProviderId: provider.id, americanOdds: -160, capturedAt: new Date() });
+
+    await recalculateOutcomeOpportunities(testPrisma, celticsOutcomeId, { maxQuoteAgeSeconds: MAX_QUOTE_AGE_SECONDS });
+
+    const opportunity = await testPrisma.bettingOpportunity.findUnique({ where: { oddsSnapshotId: quietButLive.id } });
+    expect(opportunity).not.toBeNull();
+    expect(opportunity!.bestPriceInMarket).toBe(true);
   });
 });

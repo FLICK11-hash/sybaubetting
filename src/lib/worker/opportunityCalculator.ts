@@ -13,6 +13,42 @@ export interface RecalculateOptions {
   maxQuoteAgeSeconds?: number;
 }
 
+type OutcomeWithLine = {
+  id: number;
+  marketLine: {
+    marketId: number;
+    lineValue: unknown;
+    handicapTeamId: number | null;
+    outcomes: { id: number }[];
+  };
+};
+
+/**
+ * Finds the other side of a two-outcome market, for no-vig de-vigging.
+ * Moneylines and totals share a single MarketLine between both outcomes
+ * (an Over and its Under, or both teams' moneyline), so the sibling is
+ * right there in `marketLine.outcomes`. Spreads don't: each team's side of
+ * the spread is deliberately stored as its own MarketLine (-1.5 and +1.5
+ * are different `lineValue`s, see marketMatcher.ts), so the opposing side
+ * has to be found on the mirror line within the same market instead.
+ */
+async function findOpposingOutcomeId(prisma: PrismaClient, outcome: OutcomeWithLine): Promise<number | null> {
+  const sameLineSibling = outcome.marketLine.outcomes.find((o) => o.id !== outcome.id);
+  if (sameLineSibling) return sameLineSibling.id;
+
+  if (outcome.marketLine.lineValue === null || outcome.marketLine.handicapTeamId === null) return null;
+
+  const mirrorLine = await prisma.marketLine.findFirst({
+    where: {
+      marketId: outcome.marketLine.marketId,
+      lineValue: Number(outcome.marketLine.lineValue) * -1,
+      handicapTeamId: { not: outcome.marketLine.handicapTeamId },
+    },
+    include: { outcomes: true },
+  });
+  return mirrorLine?.outcomes[0]?.id ?? null;
+}
+
 /**
  * Recompute consensus/outlier/fair-probability/EV for one outcome and
  * upsert a BettingOpportunity row per current snapshot. Fair-probability
@@ -40,7 +76,7 @@ export async function recalculateOutcomeOpportunities(
   if (!outcome) return;
 
   const currentSnapshots = await prisma.oddsSnapshot.findMany({
-    where: { outcomeId, isCurrent: true, capturedAt: { gte: cutoff } },
+    where: { outcomeId, isCurrent: true, receivedAt: { gte: cutoff } },
     include: { sportsbook: true },
   });
   if (currentSnapshots.length === 0) return;
@@ -62,27 +98,21 @@ export async function recalculateOutcomeOpportunities(
     estimationMethod = "SHARP_REFERENCE";
     referenceSportsbookId = sharpSnapshot.sportsbookId;
   } else {
-    const siblings = outcome.marketLine.outcomes;
-    if (siblings.length === 2) {
-      const otherOutcomeId = siblings.find((o) => o.id !== outcomeId)?.id;
-      const otherSnapshots = otherOutcomeId
-        ? await prisma.oddsSnapshot.findMany({
-            where: { outcomeId: otherOutcomeId, isCurrent: true, capturedAt: { gte: cutoff } },
-          })
-        : [];
-      if (otherSnapshots.length > 0) {
-        const thisConsensusDecimal = consensusDecimalOdds(bookPrices, consensusMethod);
-        const otherConsensusDecimal = consensusDecimalOdds(
-          otherSnapshots.map((s) => ({ sportsbookId: s.sportsbookId, decimalOdds: Number(s.decimalOdds) })),
-          consensusMethod
-        );
-        const { fairProbabilityA } = noVigProbabilityTwoWay(
-          1 / thisConsensusDecimal,
-          1 / otherConsensusDecimal
-        );
-        fairProbability = fairProbabilityA;
-        estimationMethod = "NO_VIG";
-      }
+    const otherOutcomeId = await findOpposingOutcomeId(prisma, outcome);
+    const otherSnapshots = otherOutcomeId
+      ? await prisma.oddsSnapshot.findMany({
+          where: { outcomeId: otherOutcomeId, isCurrent: true, receivedAt: { gte: cutoff } },
+        })
+      : [];
+    if (otherSnapshots.length > 0) {
+      const thisConsensusDecimal = consensusDecimalOdds(bookPrices, consensusMethod);
+      const otherConsensusDecimal = consensusDecimalOdds(
+        otherSnapshots.map((s) => ({ sportsbookId: s.sportsbookId, decimalOdds: Number(s.decimalOdds) })),
+        consensusMethod
+      );
+      const { fairProbabilityA } = noVigProbabilityTwoWay(1 / thisConsensusDecimal, 1 / otherConsensusDecimal);
+      fairProbability = fairProbabilityA;
+      estimationMethod = "NO_VIG";
     }
     if (fairProbability === null) {
       fairProbability = consensusImpliedProbability(bookPrices, consensusMethod);
