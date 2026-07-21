@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useFetch } from "@/lib/useFetch";
-import { Card, LoadingState, ErrorState, EmptyState, Badge, Button } from "@/components/ui";
+import { Card, StatTile, LoadingState, ErrorState, EmptyState, Badge, Button } from "@/components/ui";
 import { formatAmericanOdds, formatCurrency, formatDateTime, formatSignedPercent } from "@/lib/format";
 
 const STATUSES = ["PENDING", "WON", "LOST", "PUSH", "CASHED_OUT", "VOID"];
@@ -102,20 +102,13 @@ export default function BetTrackerPage() {
 
       {summary && (
         <div className="grid grid-cols-3 gap-3">
-          <Card className="p-4">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Total staked</div>
-            <div className="text-lg font-semibold">{formatCurrency(summary.totalStaked)}</div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Realized profit</div>
-            <div className={`text-lg font-semibold ${summary.totalProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {formatCurrency(summary.totalProfit)}
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">Pending bets</div>
-            <div className="text-lg font-semibold">{summary.pending}</div>
-          </Card>
+          <StatTile label="Total staked" value={formatCurrency(summary.totalStaked)} />
+          <StatTile
+            label="Realized profit"
+            value={formatCurrency(summary.totalProfit)}
+            tone={summary.totalProfit > 0 ? "positive" : summary.totalProfit < 0 ? "negative" : "neutral"}
+          />
+          <StatTile label="Pending bets" value={String(summary.pending)} tone={summary.pending > 0 ? "info" : "neutral"} />
         </div>
       )}
 
