@@ -31,7 +31,7 @@ export async function recalculateMarketLineArbitrage(
   const legs: { outcomeKey: string; sportsbookId: number; decimalOdds: number }[] = [];
   for (const outcome of marketLine.outcomes) {
     const snapshots = await prisma.oddsSnapshot.findMany({
-      where: { outcomeId: outcome.id, isCurrent: true, capturedAt: { gte: cutoff } },
+      where: { outcomeId: outcome.id, isCurrent: true, receivedAt: { gte: cutoff } },
     });
     if (snapshots.length === 0) {
       // Can't evaluate arbitrage without a live price on every leg.

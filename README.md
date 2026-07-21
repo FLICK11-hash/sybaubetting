@@ -109,6 +109,12 @@ touched by a polling cycle, compute best price, consensus, a fair
 probability estimate (sharp-reference book if configured, else no-vig
 de-vig of the market's two sides, else plain consensus as a fallback), and
 EV; for every market line with a complete outcome set, scan for arbitrage.
+No-vig de-vigging works for every 2-outcome market shape, including
+spreads: a spread's two sides are deliberately stored as separate
+MarketLines (favorite -1.5, underdog +1.5 are different `lineValue`s — see
+`marketMatcher.ts`), so pairing them for de-vig means finding the mirror
+line within the same market, not just same-line siblings the way
+moneylines and totals work.
 
 ## Core concepts
 
@@ -181,14 +187,14 @@ opportunities whose prices have since moved. Games (and their player props)
 starting more than a week out aren't ingested at all -- those lines are
 thin and barely move, and just dilute the current week's real opportunities;
 futures markets (season-long, no single game date) aren't affected by this.
-Unchanged prices don't create
-a new snapshot row (checked by exact odds/availability match) unless the
-last snapshot for that outcome+book is more than 30 minutes old, in which
-case one is written anyway so line-movement charts have periodic sample
-points even in a quiet market. Retries with exponential backoff on
-transient HTTP failures (`src/lib/providers/httpClient.ts`); the worker
-also tracks the provider's rate-limit headers and stops starting new
-requests if the remaining quota drops low.
+Unchanged prices don't create a new snapshot row (checked by exact
+odds/availability match) unless the last snapshot for that outcome+book is
+more than 30 minutes old, in which case one is written anyway so
+line-movement charts have periodic sample points even in a quiet market.
+Retries with exponential backoff on transient HTTP failures
+(`src/lib/providers/httpClient.ts`); the worker also tracks the provider's
+rate-limit headers and stops starting new requests if the remaining quota
+drops low.
 
 A book's snapshot older than `settings.max_quote_age_seconds` (10 minutes by
 default, editable on the Settings page) is excluded from that outcome's
@@ -196,6 +202,13 @@ best-price/consensus/no-vig/EV/arbitrage calculation for the cycle, and from
 the Dashboard's opportunity lists -- a book that stopped reconfirming its
 price (temporarily suspended the market, its own feed lagging, etc.) doesn't
 get compared against other books' fresh prices as if it were still live.
+This is checked against `odds_snapshots.received_at`, not `captured_at`:
+`received_at` is bumped every cycle a book's price is reconfirmed, even when
+the price itself hasn't changed, while `captured_at` is the book's own
+"price last changed" timestamp and can legitimately be old for a price
+that's simply been sitting unmoved for a while (common for a game days out)
+-- using `captured_at` here would wrongly treat a perfectly live, unchanged
+price as stale.
 `settings.min_ev_percent_threshold` (2% by default) is the cutoff for the
 Dashboard's "Top Positive EV Opportunities" list -- raise it to only be
 shown larger edges, or lower it to see smaller ones.

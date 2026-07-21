@@ -70,7 +70,7 @@ export async function getDashboardData() {
   // A book's snapshot that hasn't been reconfirmed within the configured
   // window shouldn't be recommended as a live opportunity alongside other
   // books' fresher prices for the same outcome.
-  const freshCurrentSnapshot = { isCurrent: true, capturedAt: { gte: cutoff } };
+  const freshCurrentSnapshot = { isCurrent: true, receivedAt: { gte: cutoff } };
 
   const [topEv, activeArbitrage, recentMarkets] = await Promise.all([
     prisma.bettingOpportunity.findMany({
