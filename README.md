@@ -171,6 +171,19 @@ slate, so the whole pipeline works offline. Once you have a real key from
 [the-odds-api.com](https://the-odds-api.com), set `ODDS_API_KEY` in `.env`
 and re-run the worker.
 
+The-odds-api's free tier is 500 requests/month. If a cycle comes back with
+zero events and every error looks like an exhausted quota (401/402/403/429
+mentioning "quota"/"usage"/"credit"/"limit" -- see
+`looksLikeQuotaExhausted` in `src/lib/worker/runOnDemand.ts`), the worker
+automatically re-runs that same cycle against the mock provider instead of
+just failing, and says so plainly in the result's `errors` (and in the
+Dashboard's "Refresh odds now" error text) so it's never mistaken for real
+odds. This only fires for genuine quota-shaped failures -- a one-off
+network blip still surfaces as a normal error rather than silently
+swapping in mock data. Once the quota resets (or you upgrade your plan),
+the next cycle uses the real provider again automatically -- nothing to
+undo.
+
 ## Running the worker
 
 ```bash
